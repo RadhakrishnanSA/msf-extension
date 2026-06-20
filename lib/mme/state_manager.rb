@@ -7,6 +7,8 @@ module Mme
     attr_reader :session_id, :target, :start_time, :options
 
     def initialize(session_id = nil)
+      # SECURITY: session_id is always a SecureRandom.uuid (hex + dashes only),
+      # safe for use in file paths with no risk of path traversal.
       @session_id = session_id || SecureRandom.uuid
       @target = nil
       @start_time = nil

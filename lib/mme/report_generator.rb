@@ -2,10 +2,23 @@ require 'erb'
 require 'json'
 require 'fileutils'
 require 'time'
+require 'open3'
 
 module Mme
   class ReportGenerator
     include ERB::Util
+
+    # Redact credentials from output text. Matches common patterns like:
+    # "LOGIN SUCCESS: admin:password123" -> "LOGIN SUCCESS: admin:********"
+    # Patterns: user:pass, username/password pairs in MSF output
+    CREDENTIAL_PATTERNS = [
+      # MSF login success output: "user:password"
+      /(LOGIN\s+SUCCE(?:SS|EDED)[^:]*:\s*\S+:)(\S+)/i,
+      # "password => value" in module output
+      /(passw(?:ord|d)?\s*(?:=>|=|:)\s*)(\S+)/i,
+      # "Logged in with credentials: user:pass"
+      /(credentials?[:\s]+\S+:)(\S+)/i,
+    ].freeze
 
     def initialize(template_dir)
       @template_dir = template_dir
@@ -23,6 +36,13 @@ module Mme
 
       # Sort findings by severity
       sorted_findings = findings.sort_by { |f| Finding::SEVERITIES.index(f.severity.to_s.downcase) || 99 }
+
+      # Apply credential redaction to evidence arrays before rendering
+      sorted_findings.each do |f|
+        if f.evidence.is_a?(Array)
+          f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) }
+        end
+      end
 
       # Group by host
       findings_by_host = sorted_findings.group_by(&:host)
@@ -53,6 +73,13 @@ module Mme
       # Sort findings by severity
       sorted_findings = findings.sort_by { |f| Finding::SEVERITIES.index(f.severity.to_s.downcase) || 99 }
 
+      # Apply credential redaction to evidence arrays before rendering
+      sorted_findings.each do |f|
+        if f.evidence.is_a?(Array)
+          f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) }
+        end
+      end
+
       # Group by host
       findings_by_host = sorted_findings.group_by(&:host)
 
@@ -71,6 +98,13 @@ module Mme
     end
 
     def generate_json(findings, evidence, metadata)
+      # Apply credential redaction to findings evidence before serialization
+      findings.each do |f|
+        if f.evidence.is_a?(Array)
+          f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) }
+        end
+      end
+
       report = {
         metadata: {
           tool: metadata[:tool_name] || 'Metasploit Methodology Engine',
@@ -93,7 +127,8 @@ module Mme
           {
             id: e.id, host: e.host, port: e.port, service: e.service,
             module_path: e.module_path, type: e.evidence_type,
-            content: e.content, timestamp: e.timestamp&.to_s
+            content: redact_credentials(e.content.to_s),
+            timestamp: e.timestamp&.to_s
           }
         }
       }
@@ -104,10 +139,60 @@ module Mme
     end
 
     def generate_pdf(findings, evidence, metadata)
-      raise NotImplementedError, 'PDF generation will be available in a future version'
+      # First generate HTML, then convert to PDF
+      html_path = generate_html(findings, evidence, metadata)
+      pdf_path = report_output_path('pdf')
+
+      # Try wkhtmltopdf
+      wkhtmltopdf = find_wkhtmltopdf
+      if wkhtmltopdf
+        begin
+          cmd = [wkhtmltopdf, '--quiet', '--enable-local-file-access',
+                 '--page-size', 'A4', '--margin-top', '15mm',
+                 '--margin-bottom', '15mm', '--margin-left', '10mm',
+                 '--margin-right', '10mm', html_path, pdf_path]
+          output, status = Open3.capture2e(*cmd)
+          if status.success?
+            return pdf_path
+          else
+            $stderr.puts("[!] wkhtmltopdf failed: #{output}")
+          end
+        rescue => e
+          $stderr.puts("[!] PDF generation error: #{e.message}")
+        end
+      end
+
+      # Fallback message
+      $stderr.puts('[!] PDF generation requires wkhtmltopdf. Install it from https://wkhtmltopdf.org/')
+      $stderr.puts("[!] HTML report is available at: #{html_path}")
+      nil
+    end
+
+    def find_wkhtmltopdf
+      # Check common locations
+      candidates = %w[wkhtmltopdf /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf]
+      candidates.each do |cmd|
+        return cmd if system("#{cmd} --version > /dev/null 2>&1") || system("#{cmd} --version > NUL 2>&1") rescue false
+      end
+      nil
     end
 
     private
+
+    # Redact credentials from text based on common MSF output patterns.
+    # Controlled by the 'redact_credentials' config option (default: true).
+    # To see full credentials in reports, run:
+    #   mme_config set redact_credentials false
+    def redact_credentials(text)
+      return text if text.nil?
+      return text unless Mme::Config.get('redact_credentials')
+
+      redacted = text.dup
+      CREDENTIAL_PATTERNS.each do |pattern|
+        redacted.gsub!(pattern) { "#{$1}********" }
+      end
+      redacted
+    end
 
     def report_output_path(extension)
       dir = File.join(Dir.home, '.msf4', 'mme', 'reports')
@@ -181,6 +266,23 @@ module Mme
           </div>
         <% end %>
       <% end %>
+
+      <% if metadata[:unmatched_services] && metadata[:unmatched_services].any? %>
+      <hr>
+      <h2>⚠️ Manual Review Required (Unmatched Services)</h2>
+      <p>The following services were discovered but did not match any active playbook. They require manual enumeration:</p>
+      <table>
+        <tr><th>Host</th><th>Port</th><th>Protocol</th><th>Service Name</th><th>Info</th></tr>
+        <% metadata[:unmatched_services].each do |svc| %>
+          <tr>
+            <td><%= h(svc.host) %></td>
+            <td><%= svc.port %></td>
+            <td><%= h(svc.proto) %></td>
+            <td><%= h(svc.name) %></td>
+            <td><%= h(svc.info) %></td>
+          </tr>
+        <% end %>
+      </table>
       <% end %>
 
       <hr>

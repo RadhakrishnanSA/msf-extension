@@ -10,8 +10,18 @@
 ## 📊 Executive Summary
 
 **Total Attack Surface:**
-- Hosts Scanned: <%= metadata[:hosts_scanned] %>
+- Live / In-Scope Hosts Scanned: <%= metadata[:hosts_scanned] %>
 - Services Discovered: <%= metadata[:services_found] %>
+
+<% if metadata[:phase_zero] && !metadata[:phase_zero].empty? %>
+**Phase 0 Discovery Stats:**
+- Original Target: `<%= metadata[:target] %>` (<%= metadata[:phase_zero][:target_type] %>)
+<% if metadata[:phase_zero][:target_type] == :domain %>
+- Subdomains Found: <%= metadata[:phase_zero][:subdomains_found] %>
+<% end %>
+- Unresponsive Hosts: <%= metadata[:phase_zero][:dead_hosts] %>
+- Excluded (Out-of-Scope): <%= metadata[:phase_zero][:excluded_hosts] %>
+<% end %>
 
 **Findings Summary (<%= sorted_findings.size %> Total):**
 <% Finding::SEVERITIES.each do |sev| %>
@@ -73,4 +83,18 @@
 ---
 <% end %>
 <% end %>
+<% end %>
+
+<% if metadata[:unmatched_services] && metadata[:unmatched_services].any? %>
+## ⚠️ Manual Review Required (Unmatched Services)
+
+The following services were discovered but did not match any active playbook. They require manual enumeration:
+
+| Host | Port | Protocol | Service Name | Info |
+|------|------|----------|--------------|------|
+<% metadata[:unmatched_services].each do |svc| %>
+| <%= svc.host %> | <%= svc.port %> | <%= svc.proto %> | <%= svc.name %> | <%= svc.info %> |
+<% end %>
+
+---
 <% end %>

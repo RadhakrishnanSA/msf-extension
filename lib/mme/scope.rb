@@ -3,7 +3,10 @@ require 'fileutils'
 module Mme
   class Scope
     def initialize(workspace_name)
-      @workspace_name = workspace_name
+      # SECURITY: Sanitize workspace name before using in file paths to prevent
+      # path traversal. Workspace names originate from MSF's db.workspace.name
+      # which is generally safe, but we enforce this as defense-in-depth.
+      @workspace_name = sanitize_workspace_name(workspace_name)
     end
 
     def scope_file
@@ -77,6 +80,12 @@ module Mme
     end
 
     private
+
+    # Sanitize workspace name for safe use in file paths.
+    # Strips any characters that are not alphanumeric, underscore, or dash.
+    def sanitize_workspace_name(name)
+      name.to_s.gsub(/[^a-zA-Z0-9_\-]/, '_')
+    end
 
     def save(entries)
       FileUtils.mkdir_p(File.dirname(scope_file))

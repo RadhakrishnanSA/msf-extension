@@ -47,14 +47,18 @@ module Mme
     end
 
     # Execute a playbook against a service
-    def execute(playbook, service_entry, evidence_collector, opts = {})
+    def execute(playbook, service_entry, evidence_collector, opts = {}, engine = nil)
       start_time = Time.now
       step_results = []
       findings_count = 0
       profile = opts[:profile] || :normal
       brute = opts[:brute] || false
+      dry_run = opts[:dry_run] || false
 
       log_status("Executing playbook: #{playbook.service} against #{service_entry}")
+      if dry_run
+        log_status("  [!] DRY-RUN MODE: Modules will NOT be executed")
+      end
       log_status("Steps to execute: #{playbook.step_count}")
 
       # Map steps by index and ID for branching
@@ -94,8 +98,17 @@ module Mme
         # Build module options
         options = build_options(step, service_entry)
 
-        # Run the module
-        result = @module_runner.run(step.module_path, options)
+        if dry_run
+          log_status("  [Dry-Run] Would execute: #{step.module_path}")
+          options.each { |k, v| log_status("    #{k} => #{v}") }
+          result = ModuleResult.new(module_path: step.module_path, output: "Dry-run output", executed: false, timestamp: Time.now, error: nil, duration: 0, status: 'skipped')
+          step_results << result
+          current_step_idx += 1
+          next
+        end
+
+        # Run the module with transient error retries
+        result = run_module_with_retries(step, options, service_entry)
         step_results << result
 
         # Collect evidence if module produced output
@@ -103,10 +116,25 @@ module Mme
           evidence = evidence_collector.collect(result, service_entry, step)
           findings_count += 1 if evidence&.finding_id
           
+          # Check for high confidence exploits to prompt the operator
+          if evidence && evidence.finding_id
+            finding = evidence_collector.findings.find { |f| f.id == evidence.finding_id }
+            if finding && finding.exploits && finding.exploits.any? { |e| e[:confidence] == 'High Confidence' }
+              handle_exploit_gate(finding, service_entry, evidence_collector, opts, engine)
+            end
+          end
+
           # Branching on success
           current_step_idx = determine_next_step_idx(step.on_success, steps, step_by_id, current_step_idx + 1)
         else
           log_warning("  Step failed: #{step.name} - #{result.error}")
+          
+          # WAF/Rate limit detection
+          if result.output && result.output.match?(/403 Forbidden|406 Not Acceptable|429 Too Many Requests/i)
+            log_warning("  [!] Potential WAF/Rate-limiting detected on #{service_entry.host}. Auto-downgrading to stealth profile.")
+            profile = :stealth
+          end
+
           # Branching on failure
           current_step_idx = determine_next_step_idx(step.on_failure, steps, step_by_id, current_step_idx + 1)
         end
@@ -137,6 +165,225 @@ module Mme
     end
 
     private
+
+    def run_module_with_retries(step, options, service_entry)
+      max_retries = 2
+      retry_count = 0
+      
+      begin
+        return @module_runner.run(step.module_path, options)
+      rescue => e
+        is_transient = e.class.name.include?('Timeout') || e.class.name.include?('ECONNRESET')
+        if is_transient && retry_count < max_retries
+          retry_count += 1
+          backoff = 2 ** retry_count
+          log_warning("  [!] Transient error (#{e.class.name}) executing #{step.module_path}. Retrying in #{backoff}s...")
+          sleep(backoff)
+          retry
+        end
+        raise e
+      end
+    end
+
+    def handle_exploit_gate(finding, service_entry, evidence_collector, opts, engine)
+      # Extract only the high confidence exploits
+      high_conf_exploits = finding.exploits.select { |e| e[:confidence] == 'High Confidence' }
+      return if high_conf_exploits.empty?
+
+      exploit = high_conf_exploits.first
+      
+      if opts[:auto_confirm] && opts[:auth_confirmed]
+        log_warning("  [!] AUTO-CONFIRM EXECUTING: #{exploit[:fullname]}")
+        run_exploit(exploit, finding, service_entry, evidence_collector, opts, engine)
+        return
+      end
+
+      # Interactive prompting requires the UI Mutex if engine is passed
+      ui_mutex = engine&.ui_mutex || Mutex.new
+
+      ui_mutex.synchronize do
+        $stdout.puts("\n\e[31m[!] CONFIRMED MATCH: #{finding.title}\e[0m")
+        $stdout.puts("    \e[33m#{exploit[:fullname]} (rank: #{exploit[:rank]}, confidence: #{exploit[:confidence]})\e[0m")
+        $stdout.print("    Run this exploit now? [y/N]: ")
+        
+        # Read from raw stdin to avoid MSF readline buffering issues if possible
+        begin
+          require 'timeout'
+          response = Timeout.timeout(60) { $stdin.gets.to_s.strip.downcase }
+          
+          if response == 'y' || response == 'yes'
+            run_exploit(exploit, finding, service_entry, evidence_collector, opts, engine)
+          else
+            finding.status = 'suggested_not_run'
+            $stdout.puts("    [-] Exploit skipped. Marked as suggested_not_run.")
+          end
+        rescue Timeout::Error
+          finding.status = 'suggested_not_run'
+          $stdout.puts("\n    [-] Exploit prompt timed out. Skipped.")
+        end
+      end
+    end
+
+    def run_exploit(exploit, finding, service_entry, evidence_collector, opts, engine)
+      log_status("  [*] Executing exploit: #{exploit[:fullname]}")
+      
+      options = {
+        'RHOSTS' => service_entry.host,
+        'RPORT'  => service_entry.port.to_s
+      }
+      
+      # SSL Check
+      if service_entry.name.to_s.downcase.include?('https') || service_entry.port.to_i == 443
+        options['SSL'] = 'true'
+      end
+
+      # Track active sessions before
+      sessions_before = @framework.sessions.keys
+
+      result = @module_runner.run(exploit[:fullname], options)
+      
+      # Collect evidence
+      if result.executed
+        # Manually create exploit evidence since we aren't using a playbook step here
+        evidence = Evidence.new(
+          id: SecureRandom.uuid,
+          host: service_entry.host,
+          port: service_entry.port,
+          service: service_entry.name,
+          module_path: exploit[:fullname],
+          evidence_type: 'exploit_attempt',
+          content: "Exploit execution output",
+          raw_output: result.output,
+          timestamp: Time.now,
+          finding_id: finding.id,
+          step_id: nil
+        )
+        evidence_collector.evidence_store << evidence
+      end
+
+      # Check if a new session was gained
+      sessions_after = @framework.sessions.keys
+      new_sessions = sessions_after - sessions_before
+
+      if new_sessions.any?
+        session_id = new_sessions.first
+        session = @framework.sessions[session_id]
+        
+        log_good("  [+] Exploit successful! Gained session #{session_id} (#{session.info})")
+        
+        if engine
+          engine.mutex.synchronize do
+            engine.gained_sessions << {
+              session_id: session_id,
+              host: service_entry.host,
+              port: service_entry.port,
+              module: exploit[:fullname],
+              info: session.info
+            }
+          end
+        end
+
+        finding.status = 'exploited'
+        
+        # Post-exploitation privesc suggestion
+        handle_post_exploitation(session_id, session, service_entry, evidence_collector, opts, engine)
+      else
+        log_warning("  [-] Exploit failed or did not yield a session.")
+        finding.status = 'exploit_failed'
+      end
+    end
+
+    def handle_post_exploitation(session_id, session, service_entry, evidence_collector, opts, engine)
+      log_status("  [*] Running local_exploit_suggester against session #{session_id}...")
+      
+      options = { 'SESSION' => session_id.to_s }
+      result = @module_runner.run('post/multi/recon/local_exploit_suggester', options)
+      
+      return unless result.executed && result.output
+
+      # Parse suggester output to find viable privesc modules
+      suggestions = []
+      result.output.lines.each do |line|
+        # MSF suggester output typically looks like:
+        # [+] 10.0.0.5 - exploit/linux/local/bpf_sign_extension: The target appears to be vulnerable.
+        if line.match?(/\[\+\]\s+.*?\s+-\s+(exploit\/.*?):\s+(.*?vulnerable.*)/i)
+          suggestions << $1.strip
+        end
+      end
+
+      if suggestions.any?
+        privesc_module = suggestions.first # Propose the first one for simplicity
+        
+        # Check auto confirm
+        if opts[:auto_confirm] && opts[:auth_confirmed]
+          log_warning("  [!] AUTO-CONFIRM EXECUTING PRIVESC: #{privesc_module}")
+          run_privesc(privesc_module, session_id, service_entry, evidence_collector)
+          return
+        end
+
+        ui_mutex = engine&.ui_mutex || Mutex.new
+        ui_mutex.synchronize do
+          $stdout.puts("\n\e[31m[!] PRIVESC SUGGESTION: local_exploit_suggester identified paths\e[0m")
+          $stdout.puts("    \e[33m#{privesc_module}\e[0m")
+          $stdout.print("    Run this privesc exploit against session #{session_id} now? [y/N]: ")
+          
+          begin
+            require 'timeout'
+            response = Timeout.timeout(60) { $stdin.gets.to_s.strip.downcase }
+            if response == 'y' || response == 'yes'
+              run_privesc(privesc_module, session_id, service_entry, evidence_collector)
+            else
+              $stdout.puts("    [-] Privesc skipped.")
+            end
+          rescue Timeout::Error
+            $stdout.puts("\n    [-] Privesc prompt timed out. Skipped.")
+          end
+        end
+      else
+        log_status("  [*] No immediate privesc vectors identified by suggester.")
+      end
+      
+      # Print lateral movement advice
+      log_status("  [*] NOTE: Session has been established. If the target has multiple interfaces,")
+      log_status("      consider `route add` and running a new mme_scan against the internal range.")
+    end
+
+    def run_privesc(module_path, session_id, service_entry, evidence_collector)
+      log_status("  [*] Executing privesc: #{module_path}")
+      
+      options = { 'SESSION' => session_id.to_s }
+      sessions_before = @framework.sessions.keys
+      
+      result = @module_runner.run(module_path, options)
+      
+      sessions_after = @framework.sessions.keys
+      new_sessions = sessions_after - sessions_before
+
+      if new_sessions.any?
+        new_sess_id = new_sessions.first
+        new_sess = @framework.sessions[new_sess_id]
+        log_good("  [+] Privesc successful! Gained new session #{new_sess_id} (#{new_sess.info})")
+        
+        # Log privesc finding
+        finding = Finding.new(
+          title: "Successful Privilege Escalation via #{module_path}",
+          severity: 'critical',
+          description: "Elevated privileges obtained on session #{session_id} yielding session #{new_sess_id}.",
+          evidence: [result.output],
+          host: service_entry.host,
+          port: service_entry.port,
+          service: service_entry.name,
+          module_path: module_path,
+          status: 'exploited'
+        )
+        
+        evidence_collector.findings_store << finding
+        
+        # We don't recurse here indefinitely. Stop at privesc.
+      else
+        log_warning("  [-] Privesc failed or did not yield a new session.")
+      end
+    end
 
     def determine_next_step_idx(target_id, steps, step_by_id, default_next_idx)
       return default_next_idx if target_id.nil? || target_id.empty?

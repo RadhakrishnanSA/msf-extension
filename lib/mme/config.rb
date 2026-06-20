@@ -12,8 +12,12 @@ module Mme
       'playbook_dirs' => [File.join(Dir.home, '.msf4', 'mme', 'playbooks')],
       'wordlist_paths' => ['/usr/share/seclists', '/usr/share/wordlists/seclists', '/usr/share/wordlists'],
       'blocklist_modules' => [],
+      'redact_credentials' => true,
       'theme' => 'dark',
-      'global_max_threads' => 10
+      'global_max_threads' => 10,
+      'defectdojo_url' => '',
+      'defectdojo_token' => '',
+      'module_timeout' => 300
     }.freeze
 
     def self.config_file

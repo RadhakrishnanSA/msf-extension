@@ -12,11 +12,12 @@ module Mme
   class EvidenceCollector
     attr_reader :evidence_store, :findings_store
 
-    def initialize(framework)
+    def initialize(framework, db_mutex = nil)
       @framework = framework
       @evidence_store = []
       @findings_store = []
       @mutex = Mutex.new
+      @db_mutex = db_mutex || Mutex.new
     end
 
     # Collect evidence from a module result
@@ -109,6 +110,7 @@ module Mme
         store_finding_to_db(finding, nil)
       end
     end
+
 
     def summary
       {
@@ -252,38 +254,40 @@ module Mme
     def store_finding_to_db(finding, evidence)
       return unless @framework.db.active
 
-      begin
-        # Store as a note
-        @framework.db.report_note(
-          host: finding.host,
-          port: finding.port,
-          type: "mme.finding.#{finding.severity}",
-          data: finding.to_h
-        )
-
-        # If high/critical, also report as vuln
-        if %w[critical high].include?(finding.severity)
-          refs = finding.references.map do |ref|
-            if ref.start_with?('CVE-')
-              ref
-            elsif ref.start_with?('http')
-              "URL-#{ref}"
-            else
-              ref
-            end
-          end
-
-          @framework.db.report_vuln(
+      @db_mutex.synchronize do
+        begin
+          # Store as a note
+          @framework.db.report_note(
             host: finding.host,
             port: finding.port,
-            name: finding.title,
-            info: finding.description,
-            refs: refs
+            type: "mme.finding.#{finding.severity}",
+            data: finding.to_h
           )
+
+          # If high/critical, also report as vuln
+          if %w[critical high].include?(finding.severity)
+            refs = finding.references.map do |ref|
+              if ref.start_with?('CVE-')
+                ref
+              elsif ref.start_with?('http')
+                "URL-#{ref}"
+              else
+                ref
+              end
+            end
+
+            @framework.db.report_vuln(
+              host: finding.host,
+              port: finding.port,
+              name: finding.title,
+              info: finding.description,
+              refs: refs
+            )
+          end
+        rescue => e
+          # Don't let DB errors stop the engine
+          $stderr.puts("[!] DB storage error: #{e.message}")
         end
-      rescue => e
-        # Don't let DB errors stop the engine
-        $stderr.puts("[!] DB storage error: #{e.message}")
       end
     end
   end

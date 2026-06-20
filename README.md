@@ -1,11 +1,17 @@
 # Metasploit Methodology Engine (MME) 🚀
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.1.0-green.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-green.svg)
 ![Metasploit](https://img.shields.io/badge/Metasploit-Framework-red.svg)
+![Ruby](https://img.shields.io/badge/Ruby-3.0%2B-CC342D.svg)
+![CI](https://img.shields.io/github/actions/workflow/status/user/mme/ci.yml?label=CI)
 
-> [!CAUTION]
-> **AUTHORIZED TESTING ONLY:** This tool is designed for authorized penetration testing and security assessments. Brute-force and exploit modules executed by this methodology engine can cause account lockouts, service disruption, or system instability. Ensure you have explicit permission before scanning any target.
+> [!WARNING]
+> **AUTHORIZED USE ONLY.** This tool is intended exclusively for authorized
+> penetration testing, security assessments, and educational purposes. Using MME
+> against systems without explicit written permission is illegal and unethical.
+> The authors assume no liability for misuse. See [SECURITY.md](SECURITY.md)
+> for vulnerability reporting.
 
 MME is an **Enterprise-Grade** Metasploit Framework plugin that automates eJPT, PNPT, and OSCP-style penetration testing methodologies. It acts like an automated junior penetration tester directly inside your `msfconsole`.
 
@@ -108,6 +114,14 @@ msf6 > mme_resume <session_id> # Pick up exactly where you left off
 * `mme_scope`: Manage target scope
 * `mme_config`: Manage configuration
 * `mme_help`: Show help text
+
+## Security & Supply Chain
+
+MME has **zero external gem dependencies** beyond the Metasploit Framework itself.
+This is a deliberate security and supply-chain decision — the plugin runs entirely
+within MSF's existing Ruby environment with no additional attack surface from
+third-party packages. See [SECURITY.md](SECURITY.md) for our security policy
+and vulnerability reporting process.
 
 ## License
 MIT License. See [LICENSE](LICENSE) for details.
