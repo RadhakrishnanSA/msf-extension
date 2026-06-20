@@ -1,0 +1,76 @@
+# 🔍 Metasploit Methodology Engine (MME) Report
+
+**Generated on:** <%= Time.now.strftime('%Y-%m-%d %H:%M:%S') %>
+**Target:** <%= metadata[:target] %>
+**Tool Version:** v<%= metadata[:tool_version] %>
+**Duration:** <%= metadata[:duration] %> seconds
+
+---
+
+## 📊 Executive Summary
+
+**Total Attack Surface:**
+- Hosts Scanned: <%= metadata[:hosts_scanned] %>
+- Services Discovered: <%= metadata[:services_found] %>
+
+**Findings Summary (<%= sorted_findings.size %> Total):**
+<% Finding::SEVERITIES.each do |sev| %>
+- **<%= sev.capitalize %>**: <%= severity_summary[sev] || 0 %>
+<% end %>
+
+---
+
+## 🛑 Top Findings (Highest Severity)
+
+<% top_findings = sorted_findings.select { |f| %w[critical high].include?(f.severity.to_s.downcase) }.take(5) %>
+<% if top_findings.empty? %>
+*No Critical or High severity findings discovered.*
+<% else %>
+<% top_findings.each do |f| %>
+### [<%= f.severity.upcase %>] <%= f.title %>
+- **Host:** <%= f.host %>:<%= f.port %> (<%= f.service.upcase %>)
+- **Module:** `<%= f.module_path %>`
+- **Impact:** <%= f.impact.empty? ? 'N/A' : f.impact %>
+- **Remediation:** <%= f.remediation.empty? ? 'N/A' : f.remediation %>
+<% if f.exploits && f.exploits.any? %>
+- **Available Exploits:**
+<% f.exploits.each do |exp| %>
+  - `use <%= exp[:fullname] %>` (Confidence: <%= exp[:confidence] || 'Possible' %>)
+<% end %>
+<% end %>
+<% end %>
+<% end %>
+
+---
+
+## 📋 Detailed Findings by Host
+
+<% if findings_by_host.empty? %>
+*No findings were discovered during this execution.*
+<% else %>
+<% findings_by_host.each do |host, host_findings| %>
+### Host: <%= host %>
+*(<%= host_findings.size %> Findings)*
+
+<% host_findings.each do |f| %>
+#### [<%= f.severity.upcase %>] <%= f.title %>
+**Service:** <%= f.service.upcase %> (Port <%= f.port %>)
+**Module:** `<%= f.module_path %>`
+**Status:** <%= f.status.capitalize %>
+
+**Description:**
+<%= f.description %>
+
+<% if f.evidence && f.evidence.any? %>
+**Evidence:**
+```text
+<% f.evidence.each do |ev| %>
+<%= ev.to_s.lines.reject { |l| l.strip.empty? || l.match?(/Scanned \d+ of \d+ hosts|New in Metasploit/) }.map { |l| l.sub(/^\[\+\]\s+/, '').sub(/^\[\*\]\s+/, '').sub(/^\d+\.\d+\.\d+\.\d+:\d+\s+-\s+/, '').strip }.reject(&:empty?).join("\n") %>
+<% end %>
+```
+<% end %>
+
+---
+<% end %>
+<% end %>
+<% end %>

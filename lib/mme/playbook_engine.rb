@@ -52,24 +52,44 @@ module Mme
       step_results = []
       findings_count = 0
       profile = opts[:profile] || :normal
-      no_brute = opts[:no_brute] || false
+      brute = opts[:brute] || false
 
       log_status("Executing playbook: #{playbook.service} against #{service_entry}")
       log_status("Steps to execute: #{playbook.step_count}")
 
-      playbook.steps.each_with_index do |step, idx|
-        if no_brute && (step.module_path.include?('login') || step.module_path.include?('brute'))
-          log_warning("  [!] Skipping brute-force module due to --no-brute flag: #{step.name}")
+      # Map steps by index and ID for branching
+      steps = playbook.steps
+      step_by_id = steps.map { |s| [s.id, s] }.to_h
+      
+      current_step_idx = 0
+      executed_count = 0
+
+      while current_step_idx < steps.size
+        step = steps[current_step_idx]
+        executed_count += 1
+
+        if !brute && (step.module_path.include?('login') || step.module_path.include?('brute'))
+          log_warning("  [!] Skipping brute-force module (opt-in required via --brute): #{step.name}")
+          current_step_idx += 1
           next
         end
 
-        if profile == :stealth && idx > 0
+        # Check conditions
+        if step.condition
+          unless evaluate_condition(step.condition, step_results, evidence_collector)
+            log_status("  [-] Condition not met for step: #{step.name}. Skipping.")
+            current_step_idx = determine_next_step_idx(step.on_failure, steps, step_by_id, current_step_idx + 1)
+            next
+          end
+        end
+
+        if profile == :stealth && executed_count > 1
           delay = rand(2..5)
           log_status("  [Stealth] Delaying execution by #{delay}s...")
           sleep(delay)
         end
         
-        log_status("  Step [#{idx + 1}/#{playbook.step_count}]: #{step.name}")
+        log_status("  Step [#{current_step_idx + 1}/#{playbook.step_count}]: #{step.name} (ID: #{step.id})")
 
         # Build module options
         options = build_options(step, service_entry)
@@ -79,16 +99,21 @@ module Mme
         step_results << result
 
         # Collect evidence if module produced output
-        if result.success
+        if result.executed
           evidence = evidence_collector.collect(result, service_entry, step)
           findings_count += 1 if evidence&.finding_id
+          
+          # Branching on success
+          current_step_idx = determine_next_step_idx(step.on_success, steps, step_by_id, current_step_idx + 1)
         else
           log_warning("  Step failed: #{step.name} - #{result.error}")
+          # Branching on failure
+          current_step_idx = determine_next_step_idx(step.on_failure, steps, step_by_id, current_step_idx + 1)
         end
       end
 
       duration = Time.now - start_time
-      success = step_results.any?(&:success)
+      success = step_results.any?(&:executed)
 
       log_good("Playbook #{playbook.service} completed in #{duration.round(1)}s - #{findings_count} findings")
 
@@ -112,6 +137,61 @@ module Mme
     end
 
     private
+
+    def determine_next_step_idx(target_id, steps, step_by_id, default_next_idx)
+      return default_next_idx if target_id.nil? || target_id.empty?
+      
+      # Find the index of the target step ID
+      target_step = step_by_id[target_id]
+      if target_step
+        idx = steps.index(target_step)
+        idx || default_next_idx
+      else
+        log_warning("  [!] Branch target ID not found: #{target_id}. Proceeding to next step.")
+        default_next_idx
+      end
+    end
+
+    # Condition evaluator. Expects format: "step_id =~ /regex/i" or "any =~ /regex/"
+    def evaluate_condition(condition_str, step_results, evidence_collector)
+      begin
+        parts = condition_str.split(' ', 3)
+        if parts.size == 3 && parts[1] == '=~'
+          step_id = parts[0]
+          
+          # Extract regex pattern and ignore_case flag (e.g., /ubuntu/i -> ubuntu, i)
+          regex_str = parts[2]
+          ignore_case = false
+          if regex_str.start_with?('/')
+            last_slash = regex_str.rindex('/')
+            if last_slash && last_slash > 0
+              flags = regex_str[(last_slash + 1)..-1]
+              ignore_case = flags.include?('i')
+              regex_str = regex_str[1...last_slash]
+            end
+          end
+          
+          regex = Regexp.new(regex_str, ignore_case ? Regexp::IGNORECASE : 0)
+
+          if step_id.downcase == 'any'
+            output = step_results.map(&:output).join("\n")
+            return !!output.match(regex)
+          else
+            # Find evidence specifically for this step ID
+            evidence = evidence_collector.evidence_list.find { |e| e.step_id == step_id }
+            if evidence
+              return !!evidence.raw_output.to_s.match(regex)
+            else
+              log_warning("  [!] Condition step_id '#{step_id}' has no evidence to evaluate.")
+              return false
+            end
+          end
+        end
+      rescue => e
+        log_warning("Failed to evaluate condition '#{condition_str}': #{e.message}")
+      end
+      true # Default to run if parsing fails
+    end
 
     # Build module datastore options from step config and service entry
     def build_options(step, service_entry)

@@ -5,7 +5,7 @@ module Mme
   Evidence = Struct.new(
     :id, :host, :port, :service, :module_path,
     :evidence_type, :content, :raw_output,
-    :timestamp, :finding_id,
+    :timestamp, :finding_id, :step_id,
     keyword_init: true
   )
 
@@ -25,7 +25,7 @@ module Mme
     # @param step [PlaybookStep] the playbook step that generated this
     # @return [Evidence, nil]
     def collect(module_result, service_entry, step)
-      return nil unless module_result&.success && !module_result.output.to_s.strip.empty?
+      return nil unless module_result&.executed && !module_result.output.to_s.strip.empty?
 
       evidence = Evidence.new(
         id: SecureRandom.uuid,
@@ -37,7 +37,8 @@ module Mme
         content: extract_meaningful_content(module_result.output),
         raw_output: module_result.output,
         timestamp: Time.now,
-        finding_id: nil
+        finding_id: nil,
+        step_id: step.id
       )
 
       @mutex.synchronize { @evidence_store << evidence }
@@ -130,11 +131,21 @@ module Mme
     def find_exploits_for_version(content)
       return [] if content.nil? || content.strip.empty?
       
-      # Extract some meaningful terms (ignore common noise words)
-      noise = %w[version is running the server on port banner]
-      words = content.gsub(/[^\w\s\.\-]/, ' ').split(/\s+/)
-      terms = words.reject { |w| w.length < 3 || noise.include?(w.downcase) }[0..2]
-      return [] if terms.empty?
+      product = nil
+      version = nil
+      terms = []
+      
+      # Attempt to parse specific product and version strings
+      if content.match(/([a-zA-Z\-_]+(?:\s+[a-zA-Z\-_]+)*)[\s\/]+(\d+\.\d+(?:\.\d+)*[a-zA-Z0-9\-\.]*)/)
+        product = $1.strip.downcase
+        version = $2.strip
+      else
+        # Fallback to old crude extraction
+        noise = %w[version is running the server on port banner]
+        words = content.gsub(/[^\w\s\.\-]/, ' ').split(/\s+/)
+        terms = words.reject { |w| w.length < 3 || noise.include?(w.downcase) }[0..2]
+        return [] if terms.empty?
+      end
       
       exploits = []
       begin
@@ -143,30 +154,63 @@ module Mme
           metadata = Msf::Modules::Metadata::Cache.instance.get_metadata rescue []
           metadata.each do |m|
             next unless m.type == 'exploit'
-            # Check if all terms match the module's description or name
+            
+            match_confidence = nil
             search_text = "#{m.fullname} #{m.description} #{m.name}".downcase
-            if terms.all? { |t| search_text.include?(t.downcase) }
-              exploits << { fullname: m.fullname, name: m.name }
-              break if exploits.size >= 5
+            
+            if product && version
+              if search_text.include?(product)
+                if search_text.include?(version)
+                  match_confidence = 'High Confidence'
+                elsif search_text.include?(version.split('.')[0..1].join('.')) # Partial version match
+                  match_confidence = 'Possible Match'
+                end
+              end
+            else
+              # Fallback logic
+              if terms.all? { |t| search_text.include?(t.downcase) }
+                match_confidence = 'Possible Match'
+              end
+            end
+            
+            if match_confidence
+              exploits << { 
+                fullname: m.fullname, 
+                name: m.name, 
+                rank: m.rank || 0,
+                confidence: match_confidence
+              }
             end
           end
         end
       rescue => e
         $stderr.puts("[!] Exploit search error: #{e.message}")
       end
-      exploits
+      
+      # Ranks in MSF: Excellent (600), Great (500), Good (400), Normal (300)
+      exploits.sort_by { |e| -e[:rank] }[0..4]
     end
 
     def extract_meaningful_content(output)
       return '' if output.nil?
-      lines = output.to_s.lines.reject { |l| l.strip.empty? || l.strip.start_with?('[*]') }
       
-      # For robots.txt and directory scanners, keep the raw paths found
-      # For logins, keep the success messages
-      # Clean up standard MSF prefixes
+      # Filter out noise but keep actual data (even if it starts with [*])
+      noise_patterns = [
+        /Scanned \d+ of \d+ hosts/,
+        /New in Metasploit/,
+        /^\[\*\]\s*$/,
+        /Error:/,
+        /Failed to create module/
+      ]
+
+      lines = output.to_s.lines.reject do |l|
+        l.strip.empty? || noise_patterns.any? { |p| l.match?(p) }
+      end
+      
       cleaned = lines.map do |l| 
         l = l.strip
         l = l.sub(/^\[\+\]\s+/, '')
+        l = l.sub(/^\[\*\]\s+/, '')
         l = l.sub(/^\d+\.\d+\.\d+\.\d+:\d+\s+-\s+/, '')
         l
       end

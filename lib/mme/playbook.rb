@@ -2,14 +2,19 @@ require 'yaml'
 
 module Mme
   class PlaybookStep
-    attr_accessor :name, :module_path, :options, :always_run, :evidence_config
+    attr_accessor :id, :name, :module_path, :options, :always_run, :evidence_config,
+                  :condition, :on_success, :on_failure
 
     def initialize(attrs = {})
+      @id = attrs['id'] || attrs[:id] || "step_#{SecureRandom.hex(4)}"
       @name = attrs['name'] || attrs[:name] || 'Unnamed Step'
       @module_path = attrs['module'] || attrs[:module_path] || ''
       @options = attrs['options'] || attrs[:options] || {}
       @always_run = attrs.fetch('always_run', attrs.fetch(:always_run, true))
       @evidence_config = attrs['evidence'] || attrs[:evidence_config] || {}
+      @condition = attrs['condition'] || attrs[:condition]
+      @on_success = attrs['on_success'] || attrs[:on_success]
+      @on_failure = attrs['on_failure'] || attrs[:on_failure]
     end
 
     def to_s

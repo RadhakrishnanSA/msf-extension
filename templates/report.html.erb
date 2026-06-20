@@ -135,7 +135,7 @@
   <div class="card">
     <h2>Engagement Details</h2>
     <table>
-      <tr><th>Target</th><td><%= metadata[:target] %></td></tr>
+      <tr><th>Target</th><td><%= h(metadata[:target]) %></td></tr>
       <tr><th>Start Time</th><td><%= metadata[:start_time] %></td></tr>
       <tr><th>End Time</th><td><%= metadata[:end_time] %></td></tr>
       <tr><th>Duration</th><td><%= metadata[:duration] %> seconds</td></tr>
@@ -171,24 +171,24 @@
       <% findings_by_host.each do |host, host_findings| %>
         <div class="host-section">
           <div class="host-header">
-            <h3>Host: <%= host %></h3>
+            <h3>Host: <%= h(host) %></h3>
             <span><%= host_findings.size %> Findings</span>
           </div>
 
           <% host_findings.each do |f| %>
             <div class="finding">
               <div class="finding-header">
-                <h4><%= f.title %></h4>
-                <span class="badge badge-<%= f.severity %>"><%= f.severity %></span>
+                <h4><%= h(f.title) %></h4>
+                <span class="badge badge-<%= h(f.severity) %>"><%= h(f.severity) %></span>
               </div>
               <div class="finding-body">
-                <p><strong>Description:</strong> <%= f.description %></p>
+                <p><strong>Description:</strong> <%= h(f.description) %></p>
                 <table>
-                  <tr><th>Service</th><td><%= f.service.upcase %> (Port <%= f.port %>)</td></tr>
-                  <tr><th>Module</th><td><code><%= f.module_path %></code></td></tr>
-                  <% if !f.impact.empty? %><tr><th>Impact</th><td><%= f.impact %></td></tr><% end %>
-                  <% if !f.remediation.empty? %><tr><th>Remediation</th><td><%= f.remediation %></td></tr><% end %>
-                  <tr><th>Status</th><td><%= f.status.capitalize %></td></tr>
+                  <tr><th>Service</th><td><%= h(f.service.upcase) %> (Port <%= f.port %>)</td></tr>
+                  <tr><th>Module</th><td><code><%= h(f.module_path) %></code></td></tr>
+                  <% if !f.impact.empty? %><tr><th>Impact</th><td><%= h(f.impact) %></td></tr><% end %>
+                  <% if !f.remediation.empty? %><tr><th>Remediation</th><td><%= h(f.remediation) %></td></tr><% end %>
+                  <tr><th>Status</th><td><%= h(f.status.capitalize) %></td></tr>
                 </table>
                 
                 <% if f.exploits && f.exploits.any? %>
@@ -196,7 +196,12 @@
                     <h5>🎯 Potential Metasploit Exploits Available:</h5>
                     <ul>
                       <% f.exploits.each do |exp| %>
-                        <li><strong>use <%= exp[:fullname] %></strong> - <%= exp[:name] %></li>
+                        <li>
+                          <strong>use <%= h(exp[:fullname]) %></strong> - <%= h(exp[:name]) %>
+                          <span style="color: #94a3b8; font-size: 11px; margin-left: 10px;">
+                            (Rank: <%= exp[:rank] %>, Match: <%= h(exp[:confidence] || 'Possible') %>)
+                          </span>
+                        </li>
                       <% end %>
                     </ul>
                   </div>
@@ -208,9 +213,12 @@
                     <% f.evidence.each do |ev| %>
                       <% content_to_show = ev.to_s %>
                       <% # Try to clean up the output for better display %>
-                      <% clean_content = content_to_show.lines.reject { |l| l.strip.start_with?('[*]') }.map { |l| l.sub(/^\[\+\]\s+/, '').sub(/^\d+\.\d+\.\d+\.\d+:\d+\s+-\s+/, '').strip }.reject(&:empty?).join("\n") %>
+                      <% clean_content = content_to_show.lines.reject { |l| l.strip.empty? || l.match?(/Scanned \d+ of \d+ hosts|New in Metasploit/) }.map { |l| l.sub(/^\[\+\]\s+/, '').sub(/^\[\*\]\s+/, '').sub(/^\d+\.\d+\.\d+\.\d+:\d+\s+-\s+/, '').strip }.reject(&:empty?).join("\n") %>
                       <% display_text = clean_content.empty? ? content_to_show : clean_content %>
-                      <pre><%= display_text.gsub('<', '&lt;').gsub('>', '&gt;') %></pre>
+                      <% safe_text = display_text.gsub('<', '&lt;').gsub('>', '&gt;') %>
+                      <% # Make URLs clickable %>
+                      <% linked_text = safe_text.gsub(/(https?:\/\/[^\s]+)/, '<a href="\1" target="_blank" style="color: #38bdf8; text-decoration: underline;">\1</a>') %>
+                      <pre><%= linked_text.respond_to?(:html_safe) ? linked_text.html_safe : raw(linked_text) rescue linked_text %></pre>
                     <% end %>
                   </div>
                 <% end %>

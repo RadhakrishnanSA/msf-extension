@@ -3,7 +3,7 @@ require 'fileutils'
 
 module Mme
   class Scanner
-    NMAP_DEFAULT_OPTS = '-sV -sC -T4 --open'
+    NMAP_DEFAULT_OPTS = '-sV -sC -T4 -Pn --open'
     NMAP_OUTPUT_FORMAT = '-oX'
 
     def initialize(framework, console_output = nil)
@@ -29,21 +29,27 @@ module Mme
       FileUtils.mkdir_p(output_dir)
       output_file = File.join(output_dir, "nmap_#{timestamp}.xml")
 
-      # Build Nmap command
+      # Validate target input to prevent basic command injection (defense in depth)
+      unless target.match?(/^[a-zA-Z0-9.\-_/,:]+$/)
+        log_error("Invalid characters in target: #{target}")
+        return []
+      end
+
+      # Build Nmap command options
       opts = nmap_opts || NMAP_DEFAULT_OPTS
       if profile == :stealth
         opts = opts.gsub('-T4', '-T2')
         opts += ' --max-rate 50' unless opts.include?('--max-rate')
       end
       
-      cmd = "nmap #{opts} #{NMAP_OUTPUT_FORMAT} #{output_file} #{target}"
+      nmap_args = opts.split + [NMAP_OUTPUT_FORMAT, output_file, target]
 
-      log_status("Starting Nmap scan: #{cmd}")
+      log_status("Starting Nmap scan: nmap #{nmap_args.join(' ')}")
       log_status("Target: #{target}")
 
-      # Execute Nmap
+      # Execute Nmap using array form to avoid shell interpolation
       begin
-        output, status = Open3.capture2e(cmd)
+        output, status = Open3.capture2e('nmap', *nmap_args)
         unless status.success?
           log_error("Nmap scan failed: #{output}")
           return []

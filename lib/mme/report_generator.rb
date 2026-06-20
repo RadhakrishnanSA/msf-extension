@@ -5,6 +5,8 @@ require 'time'
 
 module Mme
   class ReportGenerator
+    include ERB::Util
+
     def initialize(template_dir)
       @template_dir = template_dir
     end
@@ -33,9 +35,38 @@ module Mme
       erb = ERB.new(template_content, trim_mode: '-')
       html = erb.result(binding)
 
-      # Save report
       output_path = report_output_path('html')
       File.write(output_path, html)
+      output_path
+    end
+
+    def generate_markdown(findings, evidence, metadata)
+      template_path = File.join(@template_dir, 'report.md.erb')
+      
+      unless File.exist?(template_path)
+        log_error("Markdown template not found at #{template_path}")
+        return nil
+      end
+      
+      template_content = File.read(template_path)
+
+      # Sort findings by severity
+      sorted_findings = findings.sort_by { |f| Finding::SEVERITIES.index(f.severity.to_s.downcase) || 99 }
+
+      # Group by host
+      findings_by_host = sorted_findings.group_by(&:host)
+
+      # Severity summary
+      severity_summary = Hash.new(0)
+      sorted_findings.each { |f| severity_summary[f.severity] += 1 }
+
+      # Render template
+      erb = ERB.new(template_content, trim_mode: '-')
+      markdown = erb.result(binding)
+
+      # Save report
+      output_path = report_output_path('md')
+      File.write(output_path, markdown)
       output_path
     end
 
@@ -113,7 +144,7 @@ module Mme
       </style></head><body>
       <h1>🔍 Metasploit Methodology Engine — Report</h1>
       <p>Generated: <%= Time.now %></p>
-      <p>Target: <%= metadata[:target] %></p>
+      <p>Target: <%= h(metadata[:target]) %></p>
 
       <h2>Executive Summary</h2>
       <div class="summary-grid">
@@ -124,28 +155,32 @@ module Mme
       </div>
 
       <h2>Findings by Host</h2>
+      <% if findings_by_host.empty? %>
+        <p>No findings discovered.</p>
+      <% else %>
       <% findings_by_host.each do |host, host_findings| %>
-        <h3>Host: <%= host %></h3>
+        <h3>Host: <%= h(host) %></h3>
         <% host_findings.each do |f| %>
-          <div class="finding <%= f.severity %>">
-            <span class="badge badge-<%= f.severity %>"><%= f.severity.upcase %></span>
-            <strong><%= f.title %></strong>
-            <p><%= f.description %></p>
+          <div class="finding <%= h(f.severity) %>">
+            <span class="badge badge-<%= h(f.severity) %>"><%= h(f.severity.upcase) %></span>
+            <strong><%= h(f.title) %></strong>
+            <p><%= h(f.description) %></p>
             <table>
-              <tr><th>Service</th><td><%= f.service %> (Port <%= f.port %>)</td></tr>
-              <tr><th>Module</th><td><%= f.module_path %></td></tr>
-              <tr><th>Impact</th><td><%= f.impact %></td></tr>
-              <tr><th>Remediation</th><td><%= f.remediation %></td></tr>
-              <tr><th>Status</th><td><%= f.status %></td></tr>
+              <tr><th>Service</th><td><%= h(f.service) %> (Port <%= f.port %>)</td></tr>
+              <tr><th>Module</th><td><%= h(f.module_path) %></td></tr>
+              <tr><th>Impact</th><td><%= h(f.impact) %></td></tr>
+              <tr><th>Remediation</th><td><%= h(f.remediation) %></td></tr>
+              <tr><th>Status</th><td><%= h(f.status) %></td></tr>
             </table>
             <% if f.evidence.is_a?(Array) && f.evidence.any? %>
               <h4>Evidence</h4>
               <% f.evidence.each do |ev| %>
-                <pre><%= ev.to_s %></pre>
+                <pre><%= h(ev.to_s) %></pre>
               <% end %>
             <% end %>
           </div>
         <% end %>
+      <% end %>
       <% end %>
 
       <hr>

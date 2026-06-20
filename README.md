@@ -4,6 +4,9 @@
 ![Version](https://img.shields.io/badge/version-1.1.0-green.svg)
 ![Metasploit](https://img.shields.io/badge/Metasploit-Framework-red.svg)
 
+> [!CAUTION]
+> **AUTHORIZED TESTING ONLY:** This tool is designed for authorized penetration testing and security assessments. Brute-force and exploit modules executed by this methodology engine can cause account lockouts, service disruption, or system instability. Ensure you have explicit permission before scanning any target.
+
 MME is an **Enterprise-Grade** Metasploit Framework plugin that automates eJPT, PNPT, and OSCP-style penetration testing methodologies. It acts like an automated junior penetration tester directly inside your `msfconsole`.
 
 ## Key Features
@@ -56,9 +59,23 @@ msf6 > mme_scan 192.168.1.10 --profile stealth
 ```
 
 ### 3. Combining Flags
-You can combine all options together:
+You can combine all options together (note that brute-forcing is OFF by default, use `--brute` to enable):
 ```bash
-msf6 > mme_scan 10.0.0.0/24 --threads 3 --profile stealth -p 21,22,80,443
+msf6 > mme_scan 10.0.0.0/24 --threads 3 --profile stealth --brute -p 21,22,80,443
+```
+
+### 4. Configuration and Persistence
+You can persist default settings and manage scopes directly in the console:
+```bash
+msf6 > mme_config set threads 5
+msf6 > mme_scope add 192.168.1.0/24
+```
+
+### 5. Checkpointing & Resume
+MME automatically saves its state if you interrupt a scan or if it crashes.
+```bash
+msf6 > mme_sessions           # List interrupted sessions
+msf6 > mme_resume <session_id> # Pick up exactly where you left off
 ```
 
 ---
@@ -82,10 +99,14 @@ msf6 > mme_scan 10.0.0.0/24 --threads 3 --profile stealth -p 21,22,80,443
 * `mme_scan <target> [options]`: Run Nmap scan + full methodology
 * `mme_import <file>`: Import scan results (XML) and run methodology
 * `mme_status`: Show current engine status
-* `mme_report [format]`: Generate report (html/json)
+* `mme_report [format]`: Generate report (html/json/md)
 * `mme_playbooks`: List available playbooks
 * `mme_findings`: Display collected findings summary
 * `mme_stop`: Stop the current engine run
+* `mme_sessions`: List paused sessions
+* `mme_resume <id>`: Resume a paused session
+* `mme_scope`: Manage target scope
+* `mme_config`: Manage configuration
 * `mme_help`: Show help text
 
 ## License

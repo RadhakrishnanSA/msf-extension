@@ -1,6 +1,6 @@
 module Mme
   # Result of a module execution
-  ModuleResult = Struct.new(:module_path, :output, :success, :timestamp, :error, :duration, keyword_init: true)
+  ModuleResult = Struct.new(:module_path, :output, :executed, :timestamp, :error, :duration, keyword_init: true)
 
   class ModuleRunner
     # Default timeout for module execution (seconds)
@@ -25,7 +25,7 @@ module Mme
         msg = "Failed to create module: #{module_path}"
         log_error(msg)
         return ModuleResult.new(
-          module_path: module_path, output: '', success: false,
+          module_path: module_path, output: '', executed: false,
           timestamp: start_time, error: msg, duration: 0
         )
       end
@@ -52,7 +52,7 @@ module Mme
         return ModuleResult.new(
           module_path: module_path,
           output: output_buffer.dump_buffer.to_s,
-          success: false,
+          executed: false,
           timestamp: start_time,
           error: e.message,
           duration: duration
@@ -72,7 +72,7 @@ module Mme
       ModuleResult.new(
         module_path: module_path,
         output: captured,
-        success: true,
+        executed: true,
         timestamp: start_time,
         error: nil,
         duration: duration

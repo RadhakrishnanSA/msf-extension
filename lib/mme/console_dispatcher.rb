@@ -1,3 +1,7 @@
+require_relative 'config'
+require_relative 'scope'
+require_relative 'state_manager'
+
 module Mme
   class ConsoleDispatcher
     include Msf::Ui::Console::CommandDispatcher
@@ -21,6 +25,10 @@ module Mme
         'mme_playbooks' => 'List available service playbooks',
         'mme_findings'  => 'Display collected findings',
         'mme_stop'      => 'Stop the current MME engine run',
+        'mme_sessions'  => 'List resumable MME sessions',
+        'mme_resume'    => 'Resume a paused MME session',
+        'mme_config'    => 'Get or set MME configuration values',
+        'mme_scope'     => 'Manage the target scope list',
         'mme_help'      => 'Show MME help and usage information'
       }
     end
@@ -33,9 +41,9 @@ module Mme
         print_error('Options:')
         print_error('  --threads N      Number of parallel threads (default: 1)')
         print_error('  --profile NAME   Scan profile: normal, stealth (default: normal)')
-        print_error('  --no-brute       Skip all brute-force/login modules')
+        print_error('  --brute          Enable brute-force/login modules (disabled by default)')
         print_error('  -p PORTS         Ports to scan (e.g. -p 80,443)')
-        print_error('Example: mme_scan 192.168.1.10 --threads 3 --profile stealth --no-brute')
+        print_error('Example: mme_scan 192.168.1.10 --threads 3 --profile stealth --brute')
         return
       end
 
@@ -45,7 +53,13 @@ module Mme
       end
 
       target = args.shift
-      opts = { threads: 1, profile: :normal, no_brute: false, nmap_opts: [] }
+      force = false
+      opts = { 
+        threads: Config.get('threads'), 
+        profile: Config.get('profile').to_sym, 
+        brute: Config.get('brute'), 
+        nmap_opts: [] 
+      }
       
       while (arg = args.shift)
         case arg
@@ -53,14 +67,34 @@ module Mme
           opts[:threads] = args.shift.to_i
         when '--profile'
           opts[:profile] = args.shift.to_s.downcase.to_sym
+        when '--brute'
+          opts[:brute] = true
         when '--no-brute'
-          opts[:no_brute] = true
+          print_warning('[!] --no-brute is deprecated. Brute-forcing is now disabled by default. Use --brute to enable it.')
+          opts[:brute] = false
+        when '--force'
+          force = true
         else
           opts[:nmap_opts] << arg
         end
       end
       
       opts[:nmap_opts] = opts[:nmap_opts].empty? ? nil : opts[:nmap_opts].join(' ')
+
+      # Scope Enforcement
+      scope = Scope.new(framework.db.workspace.name)
+      if scope.empty?
+        unless @scope_warning_printed
+          print_warning('[!] No scope defined for this workspace. All targets will be allowed. Use `mme_scope add <target>` to set scope boundaries.')
+          @scope_warning_printed = true
+        end
+      else
+        unless scope.include?(target) || force
+          print_error("[-] OUT OF SCOPE: Target #{target} is not in the defined scope for workspace #{framework.db.workspace.name}.")
+          print_error("[-] To bypass this check, use the --force flag.")
+          return
+        end
+      end
 
       engine = get_engine
       engine.scan(target, opts)
@@ -91,9 +125,9 @@ module Mme
       profile = (stealth_in == 'y' || stealth_in == 'yes') ? :stealth : :normal
 
       # Brute-force
-      print('Enable Brute-Forcing / Login Attempts? [Y/n]: ')
+      print('Enable Brute-Forcing / Login Attempts? (Slower, noisy) [y/N]: ')
       brute_in = gets.to_s.strip.downcase
-      no_brute = (brute_in == 'n' || brute_in == 'no') ? true : false
+      brute = (brute_in == 'y' || brute_in == 'yes') ? true : false
 
       print_status('')
       print_status('Building configuration...')
@@ -101,11 +135,11 @@ module Mme
       opts = {
         threads: threads,
         profile: profile,
-        no_brute: no_brute,
+        brute: brute,
         nmap_opts: nil
       }
 
-      print_status("Launching: mme_scan #{target} --threads #{threads} --profile #{profile} #{no_brute ? '--no-brute' : ''}")
+      print_status("Launching: mme_scan #{target} --threads #{threads} --profile #{profile} #{brute ? '--brute' : ''}")
       print_status('=' * 50)
       
       engine = get_engine
@@ -257,6 +291,135 @@ module Mme
       print_good('MME engine stop requested.')
     end
 
+    def cmd_mme_config(*args)
+      if args.empty? || args[0] == 'list'
+        print_status('')
+        print_status('MME Configuration')
+        print_status('=' * 40)
+        Config.all.each { |k, v| print_status("#{k.ljust(20)} : #{v}") }
+        print_status('=' * 40)
+        return
+      end
+
+      action = args.shift
+      key = args.shift
+
+      if action == 'get'
+        if key
+          val = Config.get(key)
+          print_status("#{key} = #{val}")
+        else
+          print_error('Usage: mme_config get <key>')
+        end
+      elsif action == 'set'
+        val = args.join(' ')
+        if key && !val.empty?
+          Config.set(key, val)
+          print_good("Set #{key} to #{Config.get(key)}")
+        else
+          print_error('Usage: mme_config set <key> <value>')
+        end
+      else
+        print_error("Unknown action: #{action}. Use 'get', 'set', or 'list'.")
+      end
+    end
+
+    def cmd_mme_sessions(*args)
+      sessions = StateManager.list_sessions
+      if sessions.empty?
+        print_status('No resumable sessions found.')
+        return
+      end
+
+      print_status('')
+      print_status('Resumable MME Sessions')
+      print_status('=' * 80)
+      
+      tbl = Rex::Text::Table.new(
+        'Header'  => 'Sessions',
+        'Indent'  => 2,
+        'Columns' => ['Session ID', 'Target', 'Progress', 'Last Updated']
+      )
+
+      sessions.each do |s|
+        progress = "#{s[:queue_completed]}/#{s[:queue_total]} (#{(s[:queue_completed].to_f / s[:queue_total] * 100).round(1)}%)"
+        tbl << [s[:id], s[:target], progress, s[:last_updated].strftime('%Y-%m-%d %H:%M:%S')]
+      end
+
+      print_line(tbl.to_s)
+      print_status("Use `mme_resume <session_id>` to continue a session.")
+    end
+
+    def cmd_mme_resume(*args)
+      if args.empty?
+        print_error('Usage: mme_resume <session_id>')
+        return
+      end
+
+      unless framework.db.active
+        print_error('Database not connected. Run db_connect first.')
+        return
+      end
+
+      session_id = args.shift
+      engine = get_engine
+      engine.resume(session_id)
+    end
+
+    def cmd_mme_scope(*args)
+      unless framework.db.active
+        print_error('Database not connected. Run db_connect first to determine workspace scope.')
+        return
+      end
+
+      scope = Scope.new(framework.db.workspace.name)
+
+      if args.empty? || args[0] == 'list'
+        entries = scope.list
+        print_status('')
+        print_status("Scope for workspace: #{framework.db.workspace.name}")
+        print_status('=' * 40)
+        if entries.empty?
+          print_status('  (No scope defined. All targets allowed.)')
+        else
+          entries.each { |e| print_status("  #{e}") }
+        end
+        print_status('=' * 40)
+        return
+      end
+
+      action = args.shift
+      target = args.shift
+
+      case action
+      when 'add'
+        if target
+          if scope.add(target)
+            print_good("Added #{target} to scope.")
+          else
+            print_warning("#{target} is already in scope.")
+          end
+        else
+          print_error('Usage: mme_scope add <target>')
+        end
+      when 'remove'
+        if target
+          if scope.remove(target)
+            print_good("Removed #{target} from scope.")
+          else
+            print_warning("#{target} not found in scope.")
+          end
+        else
+          print_error('Usage: mme_scope remove <target>')
+        end
+      when 'clear'
+        scope.clear
+        print_good('Scope cleared.')
+      else
+        print_error("Unknown action: #{action}. Use 'add', 'remove', 'list', or 'clear'.")
+      end
+    end
+
     def cmd_mme_help(*args)
       print_status('')
       print_status(Mme::BANNER)
@@ -270,6 +433,10 @@ module Mme
       print_status('  mme_playbooks            - List available playbooks')
       print_status('  mme_findings             - Show collected findings')
       print_status('  mme_stop                 - Stop current run')
+      print_status('  mme_sessions             - List paused sessions')
+      print_status('  mme_resume <id>          - Resume a paused session')
+      print_status('  mme_scope                - Manage target scope')
+      print_status('  mme_config               - Manage configuration')
       print_status('  mme_help                 - Show this help')
       print_status('')
       print_status('Examples:')

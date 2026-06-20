@@ -1,4 +1,5 @@
-require 'fileutils'
+require_relative 'state_manager'
+require_relative 'audit_logger'
 
 module Mme
   class Engine
@@ -11,7 +12,8 @@ module Mme
       @framework = framework
       @console_output = console_output
       @state = :idle
-      @scanner = Scanner.new(framework, console_output)
+      @state_manager = StateManager.new
+      @session_id = @state_manager.session_id
       @service_queue = ServiceQueue.new
       @playbook_engine = PlaybookEngine.new(framework, console_output)
       @evidence_collector = EvidenceCollector.new(framework)
@@ -33,9 +35,10 @@ module Mme
     def scan(target, opts = {})
       opts = { nmap_opts: opts } if opts.is_a?(String) || opts.nil?
       @target = target
-      @opts = opts
-      @state = :scanning
       @start_time = Time.now
+      
+      @state_manager = StateManager.new
+      @session_id = @state_manager.session_id
       @stop_requested = false
       @playbook_results = []
       @evidence_collector.clear
@@ -60,7 +63,7 @@ module Mme
       rescue ::Interrupt
         log_warning('Scan interrupted by user.')
         @state = :stopped
-        @end_time = Time.now
+        @state_manager.save(@target, @start_time, @opts, @service_queue)
       rescue => e
         log_error("Engine error: #{e.message}")
         @error_message = e.message
@@ -107,6 +110,54 @@ module Mme
       end
     end
 
+    def resume(session_id)
+      @state_manager = StateManager.new(session_id)
+      @service_queue = @state_manager.load
+
+      if @service_queue.nil?
+        log_error("Session not found or invalid: #{session_id}")
+        return
+      end
+
+      @target = @state_manager.target
+      @start_time = @state_manager.start_time
+      @opts = @state_manager.options
+      @state = :running
+      @stop_requested = false
+      @playbook_results = []
+      @evidence_collector.clear
+
+      log_banner
+      log_good("Resuming session #{session_id} for target: #{@target}")
+      
+      # Jump straight to queue execution since we already have the queue built
+      process_service_queue
+
+      return if @stop_requested
+
+      log_status('[Phase 4/5] Storing evidence to database...')
+      @evidence_collector.store_to_db
+
+      log_status('[Phase 5/5] Generating report...')
+      html_path = generate_report('html')
+      generate_report('json')
+      generate_report('md')
+
+      @state = :completed
+      @end_time = Time.now
+
+      log_completion_summary(html_path)
+    rescue ::Interrupt
+      log_warning('Resume interrupted by user.')
+      @state = :stopped
+      @state_manager.save(@target, @start_time, @opts, @service_queue)
+    rescue => e
+      log_error("Engine error during resume: #{e.message}")
+      @error_message = e.message
+      @state = :error
+      @end_time = Time.now
+    end
+
     def status
       {
         state: @state,
@@ -123,7 +174,8 @@ module Mme
     def stop
       @stop_requested = true
       @state = :stopped
-      log_warning('Stop requested. Finishing current step...')
+      @state_manager.save(@target, @start_time, @opts, @service_queue) if @start_time
+      log_warning('Stop requested. Finishing current step and saving state...')
     end
 
     def generate_report(format = 'html')
@@ -139,6 +191,10 @@ module Mme
       when 'json'
         path = @report_generator.generate_json(findings, evidence, metadata)
         log_good("JSON report saved: #{path}")
+        path
+      when 'md', 'markdown'
+        path = @report_generator.generate_markdown(findings, evidence, metadata)
+        log_good("Markdown report saved: #{path}")
         path
       when 'pdf'
         log_warning('PDF report generation is not yet implemented. Use HTML or JSON.')
@@ -185,16 +241,25 @@ module Mme
       log_status('[Phase 5/5] Generating report...')
       html_path = generate_report('html')
       generate_report('json')
+      md_path = generate_report('md')
 
       @state = :completed
       @end_time = Time.now
 
-      log_completion_summary(html_path)
+      log_completion_summary(html_path, md_path)
     end
 
     def process_service_queue
-      thread_count = @opts[:threads] || 1
-      thread_count = 1 if thread_count < 1
+      requested_threads = @opts[:threads] || 1
+      requested_threads = 1 if requested_threads < 1
+      
+      global_max = Config.get('global_max_threads') || 10
+      if requested_threads > global_max
+        log_warning("[!] Requested #{requested_threads} threads, but global max is #{global_max}. Capping at #{global_max}.")
+        thread_count = global_max
+      else
+        thread_count = requested_threads
+      end
       
       if thread_count == 1
         while (service_entry = @service_queue.next_service)
@@ -231,6 +296,14 @@ module Mme
     end
 
     def process_service(service_entry)
+      # Check if this host has been marked unreachable
+      @unreachable_hosts ||= {}
+      if @unreachable_hosts[service_entry.host]
+        log_warning("[!] Skipping #{service_entry.name} on #{service_entry.host} (host marked unreachable)")
+        @service_queue.skip(service_entry)
+        return
+      end
+
       playbook = @playbook_engine.find_playbook(service_entry.name, service_entry.port)
 
       unless playbook
@@ -243,9 +316,21 @@ module Mme
         result = @playbook_engine.execute(playbook, service_entry, @evidence_collector, @opts)
         @mutex.synchronize { @playbook_results << result }
         @service_queue.complete(service_entry)
+        @state_manager.save(@target, @start_time, @opts, @service_queue)
       rescue => e
+        if e.class.name.include?('ConnectionRefused') || e.class.name.include?('ConnectionTimeout')
+          @connection_errors ||= Hash.new(0)
+          @connection_errors[service_entry.host] += 1
+          
+          if @connection_errors[service_entry.host] >= 3
+            log_error("[!] Host #{service_entry.host} appears unreachable (3 consecutive errors). Skipping remaining services.")
+            @unreachable_hosts[service_entry.host] = true
+          end
+        end
+        
         log_error("Playbook execution failed for #{service_entry}: #{e.message}")
         @service_queue.fail(service_entry)
+        @state_manager.save(@target, @start_time, @opts, @service_queue)
       end
     end
 
@@ -273,7 +358,7 @@ module Mme
       log_status('')
     end
 
-    def log_completion_summary(html_path = nil)
+    def log_completion_summary(html_path = nil, md_path = nil)
       duration = (@end_time - @start_time).round(1)
       progress = @service_queue.progress
       summary = @evidence_collector.summary
@@ -300,17 +385,18 @@ module Mme
       @playbook_results.each do |pr|
         log_status("  Service: #{pr.service_entry.name.upcase} (#{pr.service_entry.host}:#{pr.service_entry.port})")
         pr.step_results.each do |sr|
-          status_icon = sr.success ? '[+]' : '[-]'
+          status_icon = sr.executed ? '[+]' : '[-]'
           log_status("    #{status_icon} #{sr.module_path}")
         end
       end
       
-      log_status('=' * 60)
+      # Clean up state file since we finished normally
+      @state_manager.delete
       
-      if html_path
-        log_good("Report generated successfully!")
-        log_good("To view the report, click this link in your terminal:")
-        log_good("file://#{html_path}")
+      if html_path || md_path
+        log_good("Report(s) generated successfully!")
+        log_good("HTML: file://#{html_path}") if html_path
+        log_good("Markdown: file://#{md_path}") if md_path
       end
     end
 
@@ -336,18 +422,22 @@ module Mme
     end
 
     def log_status(msg)
+      AuditLogger.instance.info(msg) unless msg.strip.empty? || msg.include?('═')
       @console_output ? @console_output.print_status(msg) : $stdout.puts("[*] #{msg}")
     end
 
     def log_good(msg)
+      AuditLogger.instance.info(msg, status: 'success')
       @console_output ? @console_output.print_good(msg) : $stdout.puts("[+] #{msg}")
     end
 
     def log_error(msg)
+      AuditLogger.instance.error(msg)
       @console_output ? @console_output.print_error(msg) : $stderr.puts("[-] #{msg}")
     end
 
     def log_warning(msg)
+      AuditLogger.instance.warn(msg)
       @console_output ? @console_output.print_warning(msg) : $stderr.puts("[!] #{msg}")
     end
   end
