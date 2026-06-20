@@ -1,0 +1,57 @@
+---
+service: smb
+ports: [445, 139]
+description: "SMB Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "SMB Version Detection"
+    module: "auxiliary/scanner/smb/smb_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "SMB Version Detected"
+      description: "The SMB protocol version and OS details were identified."
+      impact: "Provides OS footprinting information to attackers."
+      remediation: "Restrict SMB access to trusted networks. Disable SMBv1."
+
+  - name: "SMB Share Enumeration"
+    module: "auxiliary/scanner/smb/smb_enumshares"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "medium"
+      title: "SMB Shares Enumerated"
+      description: "Available SMB network shares were listed."
+      impact: "Attackers can identify shares containing sensitive files or backups."
+      remediation: "Restrict access to shares using strong authentication and least privilege principles."
+
+  - name: "SMB User Enumeration"
+    module: "auxiliary/scanner/smb/smb_enumusers"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "medium"
+      title: "SMB Users Enumerated"
+      description: "User accounts were enumerated via SMB."
+      impact: "Reveals valid domain or local usernames for brute-force attacks."
+      remediation: "Restrict anonymous access to named pipes and user enumeration."
+
+  - name: "MS17-010 EternalBlue Check"
+    module: "auxiliary/scanner/smb/smb_ms17_010"
+    options: {}
+    always_run: true
+    evidence:
+      type: "vulnerability"
+      severity: "critical"
+      title: "MS17-010 EternalBlue Vulnerability Detected"
+      description: "The server is vulnerable to MS17-010 (EternalBlue)."
+      impact: "Allows unauthenticated remote code execution with SYSTEM privileges."
+      remediation: "Apply the MS17-010 security patch immediately and disable SMBv1."
+      references:
+        - "https://technet.microsoft.com/en-us/library/security/ms17-010.aspx"

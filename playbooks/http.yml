@@ -1,0 +1,56 @@
+---
+service: http
+ports: [80, 8080, 8000]
+description: "HTTP Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "HTTP Version Detection"
+    module: "auxiliary/scanner/http/http_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "HTTP Service Version Detected"
+      description: "The web server version was identified via the Server HTTP header."
+      impact: "Allows attackers to identify known vulnerabilities in the web server software."
+      remediation: "Configure the web server to hide the Server header or use a generic value."
+
+  - name: "HTTP Title Grab"
+    module: "auxiliary/scanner/http/title"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "informational"
+      title: "Web Page Title Exposed"
+      description: "The HTML title of the default web page was retrieved."
+      impact: "May reveal the name of the web application or internal system."
+      remediation: "None required, unless the title exposes sensitive internal names."
+
+  - name: "robots.txt Discovery"
+    module: "auxiliary/scanner/http/robots_txt"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "low"
+      title: "robots.txt File Found"
+      description: "A robots.txt file was found. It may contain paths to sensitive or hidden directories."
+      impact: "Attackers can read robots.txt to discover hidden application paths."
+      remediation: "Do not rely on robots.txt to hide sensitive data. Ensure all sensitive paths require authentication."
+
+  - name: "HTTP Directory Scanner"
+    module: "auxiliary/scanner/http/dir_scanner"
+    options:
+      DICTIONARY: "/usr/share/metasploit-framework/data/wordlists/directory.txt"
+    always_run: true
+    evidence:
+      type: "accessible_resource"
+      severity: "medium"
+      title: "Hidden Directories Discovered"
+      description: "Common directories were discovered on the web server."
+      impact: "May expose administrative interfaces, backups, or sensitive files."
+      remediation: "Remove default files and directories. Protect sensitive areas with authentication."

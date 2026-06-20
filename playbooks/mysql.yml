@@ -1,0 +1,34 @@
+---
+service: mysql
+ports: [3306]
+description: "MySQL Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "MySQL Version Detection"
+    module: "auxiliary/scanner/mysql/mysql_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "MySQL Version Detected"
+      description: "The MySQL database server version was identified."
+      impact: "Allows attackers to find version-specific vulnerabilities."
+      remediation: "Keep the database server patched and restrict network access."
+
+  - name: "MySQL Default Login Check"
+    module: "auxiliary/scanner/mysql/mysql_login"
+    options:
+      USERNAME: "root"
+      PASSWORD: ""
+      BLANK_PASSWORDS: true
+    always_run: true
+    evidence:
+      type: "misconfiguration"
+      severity: "high"
+      title: "MySQL Default Credentials Allowed"
+      description: "The MySQL server allows login with default credentials (e.g., root with a blank password)."
+      impact: "Attackers gain full administrative access to the database."
+      remediation: "Set strong passwords for all database users, especially root. Remove anonymous accounts."

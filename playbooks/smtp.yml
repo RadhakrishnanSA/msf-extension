@@ -1,0 +1,43 @@
+---
+service: smtp
+ports: [25, 465, 587]
+description: "SMTP Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "SMTP Version Detection"
+    module: "auxiliary/scanner/smtp/smtp_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "SMTP Service Version Detected"
+      description: "SMTP banner and version were retrieved."
+      impact: "Reveals software details to attackers."
+      remediation: "Modify the SMTP banner to hide software version."
+
+  - name: "SMTP User Enumeration (VRFY/EXPN)"
+    module: "auxiliary/scanner/smtp/smtp_enum"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "medium"
+      title: "SMTP User Enumeration Allowed"
+      description: "The SMTP server supports VRFY or EXPN commands, allowing attackers to verify if an email address or user exists."
+      impact: "Enables attackers to harvest valid email addresses for phishing or brute-force attacks."
+      remediation: "Disable VRFY and EXPN commands in the SMTP server configuration."
+
+  - name: "SMTP Open Relay Check"
+    module: "auxiliary/scanner/smtp/smtp_relay"
+    options: {}
+    always_run: true
+    evidence:
+      type: "misconfiguration"
+      severity: "high"
+      title: "SMTP Open Relay Detected"
+      description: "The SMTP server allows unauthenticated users to relay emails to external domains."
+      impact: "The server can be abused to send spam or phishing emails, leading to IP blocklisting."
+      remediation: "Configure the SMTP server to require authentication for relaying or restrict relaying to trusted IP addresses."

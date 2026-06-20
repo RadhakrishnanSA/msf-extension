@@ -1,0 +1,33 @@
+---
+service: postgresql
+ports: [5432]
+description: "PostgreSQL Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "PostgreSQL Version Detection"
+    module: "auxiliary/scanner/postgres/postgres_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "PostgreSQL Version Detected"
+      description: "The PostgreSQL database server version was identified."
+      impact: "Attackers can use version info to find exploits."
+      remediation: "Ensure the database is up to date and limit network exposure."
+
+  - name: "PostgreSQL Default Login Check"
+    module: "auxiliary/scanner/postgres/postgres_login"
+    options:
+      USERNAME: "postgres"
+      PASSWORD: "postgres"
+    always_run: true
+    evidence:
+      type: "misconfiguration"
+      severity: "high"
+      title: "PostgreSQL Default Credentials Allowed"
+      description: "The PostgreSQL server allows login with default credentials (postgres:postgres)."
+      impact: "Attackers gain administrative access to the database."
+      remediation: "Change the default password for the postgres user immediately."

@@ -1,0 +1,31 @@
+---
+service: redis
+ports: [6379]
+description: "Redis Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "Redis Server Information"
+    module: "auxiliary/scanner/redis/redis_server"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "medium"
+      title: "Redis Server Information Exposed"
+      description: "The Redis server allows unauthenticated access and exposes system information."
+      impact: "Attackers can gather details about the Redis configuration, connected clients, and potentially execute commands."
+      remediation: "Configure Redis to require authentication (`requirepass` directive) and bind to localhost if external access is not needed."
+
+  - name: "Redis Unauthenticated Login Check"
+    module: "auxiliary/scanner/redis/redis_login"
+    options: {}
+    always_run: true
+    evidence:
+      type: "misconfiguration"
+      severity: "high"
+      title: "Redis Unauthenticated Access Allowed"
+      description: "The Redis server does not require authentication."
+      impact: "Attackers can read, modify, or delete data, and potentially gain remote code execution."
+      remediation: "Enable authentication in `redis.conf` and use a strong password."

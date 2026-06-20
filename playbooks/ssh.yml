@@ -1,0 +1,36 @@
+---
+service: ssh
+ports: [22]
+description: "SSH Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "SSH Version Detection"
+    module: "auxiliary/scanner/ssh/ssh_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "SSH Service Version Detected"
+      description: "SSH service version was identified."
+      impact: "Provides information about the target environment."
+      remediation: "Keep SSH updated and hide version string if possible."
+      references:
+        - "https://www.ssh.com/academy/ssh/security"
+
+  - name: "SSH User Enumeration"
+    module: "auxiliary/scanner/ssh/ssh_enumusers"
+    options:
+      CHECK_FALSE: true
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "medium"
+      title: "SSH User Enumeration Possible"
+      description: "The SSH server is vulnerable to username enumeration via timing attacks or malformed packets."
+      impact: "Attackers can identify valid usernames, facilitating targeted brute-force attacks."
+      remediation: "Upgrade OpenSSH to a version that mitigates user enumeration or disable features like public key authentication if not needed."
+      references:
+        - "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2018-15473"

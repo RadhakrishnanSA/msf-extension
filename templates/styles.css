@@ -1,0 +1,39 @@
+/* Styles embedded in report.html.erb */
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f4f6f9; color: #333; }
+.header { background: #2c3e50; color: white; padding: 20px 40px; }
+.header h1 { margin: 0; font-size: 24px; }
+.header p { margin: 5px 0 0; font-size: 14px; opacity: 0.8; }
+.container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+.card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+.card h2 { margin-top: 0; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px; color: #2c3e50; }
+
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin: 20px 0; }
+.summary-card { background: #ecf0f1; padding: 20px; border-radius: 8px; text-align: center; }
+.summary-card .number { font-size: 32px; font-weight: bold; color: #e74c3c; }
+.summary-card .label { font-size: 14px; color: #7f8c8d; margin-top: 5px; text-transform: uppercase; }
+
+.finding { border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 15px; overflow: hidden; }
+.finding-header { background: #f8f9fa; padding: 15px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
+.finding-header h4 { margin: 0; font-size: 16px; color: #2c3e50; }
+.finding-body { padding: 15px; }
+
+.badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; color: white; text-transform: uppercase; }
+.badge-critical { background: #e74c3c; }
+.badge-high { background: #e67e22; }
+.badge-medium { background: #f1c40f; color: #333; }
+.badge-low { background: #3498db; }
+.badge-informational { background: #95a5a6; }
+
+table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ecf0f1; font-size: 14px; }
+th { width: 150px; color: #7f8c8d; font-weight: 600; }
+
+pre { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 13px; font-family: 'Consolas', 'Monaco', monospace; margin: 0; }
+.evidence-section { margin-top: 15px; }
+.evidence-section h5 { margin: 0 0 10px; color: #2c3e50; font-size: 14px; }
+
+.host-section { margin-top: 40px; }
+.host-header { background: #34495e; color: white; padding: 15px 20px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+.host-header h3 { margin: 0; font-size: 18px; }
+
+.footer { text-align: center; padding: 20px; color: #7f8c8d; font-size: 12px; margin-top: 40px; border-top: 1px solid #ecf0f1; }

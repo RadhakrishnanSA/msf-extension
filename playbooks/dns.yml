@@ -1,0 +1,32 @@
+---
+service: dns
+ports: [53]
+description: "DNS Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "DNS Amplification Check"
+    module: "auxiliary/scanner/dns/dns_amp"
+    options: {}
+    always_run: true
+    evidence:
+      type: "vulnerability"
+      severity: "medium"
+      title: "DNS Amplification Vulnerability"
+      description: "The DNS server allows recursive queries and can be used in a DNS amplification DDoS attack."
+      impact: "The server can be abused by attackers to flood third-party targets with traffic, causing denial of service."
+      remediation: "Disable DNS recursion for external IP addresses. Only allow recursion for trusted internal networks."
+
+  - name: "DNS Enumeration"
+    module: "auxiliary/gather/enum_dns"
+    options:
+      DOMAIN: "" # User needs to specify the domain in MSF or options
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "informational"
+      title: "DNS Records Discovered"
+      description: "DNS records were enumerated, revealing infrastructure details."
+      impact: "Provides a map of the target's network infrastructure."
+      remediation: "Restrict zone transfers (AXFR) to trusted secondary nameservers only."

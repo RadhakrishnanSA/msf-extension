@@ -1,0 +1,35 @@
+---
+service: ftp
+ports: [21]
+description: "FTP Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "FTP Version Detection"
+    module: "auxiliary/scanner/ftp/ftp_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "FTP Service Version Detected"
+      description: "FTP service version was identified. Attackers may use this to identify known vulnerabilities."
+      impact: "Allows attackers to map the network and find outdated software."
+      remediation: "Ensure the FTP service is patched and consider using secure alternatives like SFTP."
+      references:
+        - "https://nvd.nist.gov/"
+
+  - name: "FTP Anonymous Login Check"
+    module: "auxiliary/scanner/ftp/anonymous"
+    options: {}
+    always_run: true
+    evidence:
+      type: "misconfiguration"
+      severity: "high"
+      title: "FTP Anonymous Login Enabled"
+      description: "The FTP server allows anonymous login. Attackers can connect without credentials."
+      impact: "Unauthorized users can read or write files on the FTP server, potentially leading to data breach or malware hosting."
+      remediation: "Disable anonymous FTP access unless explicitly required for a public file share. Require strong authentication."
+      references:
+        - "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/07-Test_Cross_Site_Tracing"

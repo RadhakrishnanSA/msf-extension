@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MME Report - <%= metadata[:target] %></title>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f4f6f9; color: #333; }
+    .header { background: #2c3e50; color: white; padding: 20px 40px; }
+    .header h1 { margin: 0; font-size: 24px; }
+    .header p { margin: 5px 0 0; font-size: 14px; opacity: 0.8; }
+    .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+    .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+    .card h2 { margin-top: 0; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px; color: #2c3e50; }
+    
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin: 20px 0; }
+    .summary-card { background: #ecf0f1; padding: 20px; border-radius: 8px; text-align: center; }
+    .summary-card .number { font-size: 32px; font-weight: bold; color: #e74c3c; }
+    .summary-card .label { font-size: 14px; color: #7f8c8d; margin-top: 5px; text-transform: uppercase; }
+    
+    .finding { border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 15px; overflow: hidden; }
+    .finding-header { background: #f8f9fa; padding: 15px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
+    .finding-header h4 { margin: 0; font-size: 16px; color: #2c3e50; }
+    .finding-body { padding: 15px; }
+    
+    .badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; color: white; text-transform: uppercase; }
+    .badge-critical { background: #e74c3c; }
+    .badge-high { background: #e67e22; }
+    .badge-medium { background: #f1c40f; color: #333; }
+    .badge-low { background: #3498db; }
+    .badge-informational { background: #95a5a6; }
+    
+    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ecf0f1; font-size: 14px; }
+    th { width: 150px; color: #7f8c8d; font-weight: 600; }
+    
+    pre { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 13px; font-family: 'Consolas', 'Monaco', monospace; margin: 0; }
+    .evidence-section { margin-top: 15px; }
+    .evidence-section h5 { margin: 0 0 10px; color: #2c3e50; font-size: 14px; }
+    
+    .host-section { margin-top: 40px; }
+    .host-header { background: #34495e; color: white; padding: 15px 20px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .host-header h3 { margin: 0; font-size: 18px; }
+    
+    .footer { text-align: center; padding: 20px; color: #7f8c8d; font-size: 12px; margin-top: 40px; border-top: 1px solid #ecf0f1; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🔍 Metasploit Methodology Engine (MME)</h1>
+  <p>Automated Penetration Testing Report</p>
+</div>
+
+<div class="container">
+  <!-- Metadata Card -->
+  <div class="card">
+    <h2>Engagement Details</h2>
+    <table>
+      <tr><th>Target</th><td><%= metadata[:target] %></td></tr>
+      <tr><th>Start Time</th><td><%= metadata[:start_time] %></td></tr>
+      <tr><th>End Time</th><td><%= metadata[:end_time] %></td></tr>
+      <tr><th>Duration</th><td><%= metadata[:duration] %> seconds</td></tr>
+      <tr><th>Tool Version</th><td>v<%= metadata[:tool_version] %></td></tr>
+    </table>
+  </div>
+
+  <!-- Executive Summary -->
+  <div class="card">
+    <h2>Executive Summary</h2>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="number" style="color: #2c3e50;"><%= sorted_findings.size %></div>
+        <div class="label">Total Findings</div>
+      </div>
+      <% Finding::SEVERITIES.each do |sev| %>
+        <div class="summary-card">
+          <% count = severity_summary[sev] || 0 %>
+          <div class="number" style="color: <%= count > 0 ? '' : '#95a5a6' %>;"><%= count %></div>
+          <div class="label"><%= sev %></div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <!-- Findings by Host -->
+  <div class="card">
+    <h2>Detailed Findings</h2>
+    
+    <% if findings_by_host.empty? %>
+      <p style="text-align: center; color: #7f8c8d; padding: 40px;">No findings were discovered during this execution.</p>
+    <% else %>
+      <% findings_by_host.each do |host, host_findings| %>
+        <div class="host-section">
+          <div class="host-header">
+            <h3>Host: <%= host %></h3>
+            <span><%= host_findings.size %> Findings</span>
+          </div>
+
+          <% host_findings.each do |f| %>
+            <div class="finding">
+              <div class="finding-header">
+                <h4><%= f.title %></h4>
+                <span class="badge badge-<%= f.severity %>"><%= f.severity %></span>
+              </div>
+              <div class="finding-body">
+                <p><strong>Description:</strong> <%= f.description %></p>
+                <table>
+                  <tr><th>Service</th><td><%= f.service.upcase %> (Port <%= f.port %>)</td></tr>
+                  <tr><th>Module</th><td><code><%= f.module_path %></code></td></tr>
+                  <% if !f.impact.empty? %><tr><th>Impact</th><td><%= f.impact %></td></tr><% end %>
+                  <% if !f.remediation.empty? %><tr><th>Remediation</th><td><%= f.remediation %></td></tr><% end %>
+                  <tr><th>Status</th><td><%= f.status.capitalize %></td></tr>
+                </table>
+                
+                <% if f.evidence.is_a?(Array) && f.evidence.any? %>
+                  <div class="evidence-section">
+                    <h5>Evidence / Proof of Concept:</h5>
+                    <% f.evidence.each do |ev| %>
+                      <pre><%= ev.to_s.gsub('<', '&lt;').gsub('>', '&gt;') %></pre>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+    <% end %>
+  </div>
+</div>
+
+<div class="footer">
+  Generated by <%= metadata[:tool_name] %> v<%= metadata[:tool_version] %> on <%= Time.now.strftime('%Y-%m-%d %H:%M:%S') %>
+</div>
+
+</body>
+</html>

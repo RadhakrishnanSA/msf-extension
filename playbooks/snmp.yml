@@ -1,0 +1,32 @@
+---
+service: snmp
+ports: [161]
+description: "SNMP Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "SNMP Enumeration"
+    module: "auxiliary/scanner/snmp/snmp_enum"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "medium"
+      title: "SNMP Enumeration Successful"
+      description: "Extracted system information via SNMP."
+      impact: "Reveals detailed system information, running processes, and network configuration."
+      remediation: "Restrict SNMP access, use SNMPv3, or change default community strings."
+
+  - name: "SNMP Community String Check"
+    module: "auxiliary/scanner/snmp/snmp_login"
+    options:
+      VERSION: "2c"
+    always_run: true
+    evidence:
+      type: "misconfiguration"
+      severity: "high"
+      title: "Default/Weak SNMP Community String Discovered"
+      description: "A default or weak SNMP community string (e.g., 'public', 'private') was found."
+      impact: "Allows attackers to query or modify device configurations."
+      remediation: "Change the SNMP community string to a strong, complex value."

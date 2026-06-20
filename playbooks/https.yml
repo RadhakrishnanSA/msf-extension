@@ -1,0 +1,70 @@
+---
+service: https
+ports: [443, 8443]
+description: "HTTPS Service Enumeration Playbook"
+author: "MME"
+version: "1.0"
+
+steps:
+  - name: "HTTPS Version Detection"
+    module: "auxiliary/scanner/http/http_version"
+    options:
+      SSL: true
+    always_run: true
+    evidence:
+      type: "service_version"
+      severity: "informational"
+      title: "HTTPS Service Version Detected"
+      description: "The secure web server version was identified."
+      impact: "Allows attackers to map out software versions."
+      remediation: "Hide the Server HTTP header."
+
+  - name: "HTTPS Title Grab"
+    module: "auxiliary/scanner/http/title"
+    options:
+      SSL: true
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "informational"
+      title: "Secure Web Page Title Exposed"
+      description: "The HTML title of the default secure web page was retrieved."
+      impact: "May reveal application details."
+      remediation: "None required."
+
+  - name: "SSL Certificate Information"
+    module: "auxiliary/scanner/http/cert"
+    options: {}
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "informational"
+      title: "SSL Certificate Details Retrieved"
+      description: "SSL certificate details such as Subject, Issuer, and Expiry were collected."
+      impact: "May reveal internal hostnames or email addresses."
+      remediation: "Ensure certificates do not leak internal system names."
+
+  - name: "SSL/TLS Version Detection"
+    module: "auxiliary/scanner/http/ssl_version"
+    options: {}
+    always_run: true
+    evidence:
+      type: "misconfiguration"
+      severity: "medium"
+      title: "Weak SSL/TLS Versions Supported"
+      description: "The server supports outdated SSL/TLS protocols."
+      impact: "Attackers could perform downgrade attacks or decrypt communications."
+      remediation: "Disable SSLv2, SSLv3, TLS 1.0, and TLS 1.1. Enforce TLS 1.2 or TLS 1.3."
+
+  - name: "robots.txt Discovery (HTTPS)"
+    module: "auxiliary/scanner/http/robots_txt"
+    options:
+      SSL: true
+    always_run: true
+    evidence:
+      type: "information_disclosure"
+      severity: "low"
+      title: "HTTPS robots.txt File Found"
+      description: "A robots.txt file was found via HTTPS."
+      impact: "May expose hidden application paths."
+      remediation: "Ensure sensitive paths are protected by authentication."
