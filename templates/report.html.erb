@@ -206,7 +206,11 @@
                   <div class="evidence-section">
                     <h5>Evidence / Proof of Concept:</h5>
                     <% f.evidence.each do |ev| %>
-                      <pre><%= ev.to_s.gsub('<', '&lt;').gsub('>', '&gt;') %></pre>
+                      <% content_to_show = ev.to_s %>
+                      <% # Try to clean up the output for better display %>
+                      <% clean_content = content_to_show.lines.reject { |l| l.strip.start_with?('[*]') }.map { |l| l.sub(/^\[\+\]\s+/, '').sub(/^\d+\.\d+\.\d+\.\d+:\d+\s+-\s+/, '').strip }.reject(&:empty?).join("\n") %>
+                      <% display_text = clean_content.empty? ? content_to_show : clean_content %>
+                      <pre><%= display_text.gsub('<', '&lt;').gsub('>', '&gt;') %></pre>
                     <% end %>
                   </div>
                 <% end %>

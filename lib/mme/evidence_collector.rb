@@ -160,7 +160,18 @@ module Mme
     def extract_meaningful_content(output)
       return '' if output.nil?
       lines = output.to_s.lines.reject { |l| l.strip.empty? || l.strip.start_with?('[*]') }
-      lines.map(&:strip).join("\n")
+      
+      # For robots.txt and directory scanners, keep the raw paths found
+      # For logins, keep the success messages
+      # Clean up standard MSF prefixes
+      cleaned = lines.map do |l| 
+        l = l.strip
+        l = l.sub(/^\[\+\]\s+/, '')
+        l = l.sub(/^\d+\.\d+\.\d+\.\d+:\d+\s+-\s+/, '')
+        l
+      end
+      
+      cleaned.join("\n")
     end
 
     def has_meaningful_output?(output, module_path = '')

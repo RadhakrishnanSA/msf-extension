@@ -58,11 +58,11 @@ module Mme
       end
 
       # Import results
-      import_file(output_file)
+      import_file(output_file, target)
     end
 
     # Import a scan results file (Nmap XML, Nessus, etc.)
-    def import_file(path)
+    def import_file(path, target = nil)
       unless File.exist?(path)
         log_error("File not found: #{path}")
         return []
@@ -83,11 +83,11 @@ module Mme
         return []
       end
 
-      discover_services
+      discover_services(target)
     end
 
     # Query MSF database for open services in the current workspace
-    def discover_services
+    def discover_services(target = nil)
       unless @framework.db.active
         log_error('Database is not connected')
         return []
@@ -96,8 +96,23 @@ module Mme
       services = []
       workspace = @framework.db.workspace
 
+      # Initialize RangeWalker to filter by target if provided
+      range_walker = nil
+      if target
+        begin
+          range_walker = ::Rex::Socket::RangeWalker.new(target)
+        rescue => e
+          log_warning("Could not parse target range for filtering: #{e.message}")
+        end
+      end
+
       @framework.db.services(workspace: workspace).each do |svc|
         next unless svc.state == 'open'
+        
+        # Filter by target if range walker is initialized
+        if range_walker && !range_walker.include?(svc.host.address)
+          next
+        end
 
         entry = ServiceEntry.new(
           host: svc.host.address,
