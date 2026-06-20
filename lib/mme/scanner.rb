@@ -12,7 +12,7 @@ module Mme
     end
 
     # Run an Nmap scan against a target and import results
-    def nmap_scan(target, nmap_opts = nil)
+    def nmap_scan(target, nmap_opts = nil, profile = :normal)
       unless nmap_available?
         log_error('Nmap is not installed or not in PATH')
         return []
@@ -31,6 +31,11 @@ module Mme
 
       # Build Nmap command
       opts = nmap_opts || NMAP_DEFAULT_OPTS
+      if profile == :stealth
+        opts = opts.gsub('-T4', '-T2')
+        opts += ' --max-rate 50' unless opts.include?('--max-rate')
+      end
+      
       cmd = "nmap #{opts} #{NMAP_OUTPUT_FORMAT} #{output_file} #{target}"
 
       log_status("Starting Nmap scan: #{cmd}")

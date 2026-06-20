@@ -47,15 +47,28 @@ module Mme
     end
 
     # Execute a playbook against a service
-    def execute(playbook, service_entry, evidence_collector)
+    def execute(playbook, service_entry, evidence_collector, opts = {})
       start_time = Time.now
       step_results = []
       findings_count = 0
+      profile = opts[:profile] || :normal
+      no_brute = opts[:no_brute] || false
 
       log_status("Executing playbook: #{playbook.service} against #{service_entry}")
       log_status("Steps to execute: #{playbook.step_count}")
 
       playbook.steps.each_with_index do |step, idx|
+        if no_brute && (step.module_path.include?('login') || step.module_path.include?('brute'))
+          log_warning("  [!] Skipping brute-force module due to --no-brute flag: #{step.name}")
+          next
+        end
+
+        if profile == :stealth && idx > 0
+          delay = rand(2..5)
+          log_status("  [Stealth] Delaying execution by #{delay}s...")
+          sleep(delay)
+        end
+        
         log_status("  Step [#{idx + 1}/#{playbook.step_count}]: #{step.name}")
 
         # Build module options
@@ -113,12 +126,49 @@ module Mme
         opts['SSL'] = 'true'
       end
 
+      # Smart Wordlist Injection for Login Modules
+      if step.module_path.include?('login') || step.module_path.include?('brute')
+        inject_smart_wordlists(opts, service_entry.name.to_s.downcase)
+      end
+
       # Merge step-specific options (from YAML)
       step.options.each do |key, value|
         opts[key.to_s] = value.to_s
       end
 
       opts
+    end
+
+    def inject_smart_wordlists(opts, service_name)
+      # Check standard seclist locations
+      seclists_paths = [
+        '/usr/share/seclists',
+        '/usr/share/wordlists/seclists'
+      ]
+      base_path = seclists_paths.find { |p| File.directory?(p) }
+      
+      # 1. Passwords (Default to rockyou if available)
+      rockyou = '/usr/share/wordlists/rockyou.txt'
+      if File.exist?(rockyou)
+        opts['PASS_FILE'] = rockyou
+      else
+        # Fallback to MSF default
+        opts['PASS_FILE'] = ::Msf::Config.install_root + '/data/wordlists/unix_passwords.txt'
+      end
+
+      # 2. Usernames (Service specific if seclists exists)
+      if base_path
+        service_user_file = File.join(base_path, 'Passwords', 'Default-Credentials', "#{service_name}-betterdefaultpasslist.txt")
+        if File.exist?(service_user_file)
+          opts['USERPASS_FILE'] = service_user_file
+          opts.delete('PASS_FILE') # Avoid redundant pass file if we have a userpass combo
+        else
+          opts['USER_FILE'] = File.join(base_path, 'Usernames', 'top-usernames-shortlist.txt')
+        end
+      else
+        # Fallback to MSF default
+        opts['USER_FILE'] = ::Msf::Config.install_root + '/data/wordlists/unix_users.txt'
+      end
     end
 
     def log_status(msg)

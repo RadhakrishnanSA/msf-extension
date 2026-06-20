@@ -1,37 +1,67 @@
 # Metasploit Methodology Engine (MME) 🚀
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-green.svg)
 ![Metasploit](https://img.shields.io/badge/Metasploit-Framework-red.svg)
 
-MME is a Metasploit Framework plugin that automates eJPT, PNPT, and OSCP-style penetration testing methodologies. It acts like a junior penetration tester inside your `msfconsole`.
+MME is an **Enterprise-Grade** Metasploit Framework plugin that automates eJPT, PNPT, and OSCP-style penetration testing methodologies. It acts like an automated junior penetration tester directly inside your `msfconsole`.
 
-## Features
+## Key Features
 * **Automated Enumeration**: Runs comprehensive scans and enumeration modules based on discovered services.
-* **Service-Driven Architecture**: Uses YAML playbooks to determine which modules to run.
-* **Evidence Collection**: Captures module outputs and stores them in the Metasploit database.
-* **Report Generation**: Automatically generates professional HTML and JSON reports.
+* **Service-Driven Architecture**: Uses YAML playbooks to determine which modules to run. Add new attacks without knowing Ruby!
+* **Multi-Threading (Enterprise)**: Scan multiple services simultaneously to cut down scan times on massive networks.
+* **Stealth Profiles**: Built-in timing delays and throttled Nmap scans to evade blue teams and IDS/IPS.
+* **Evidence Collection & Reporting**: Parses Metasploit module output automatically, catches false positives, and generates professional HTML and JSON reports.
+* **Exploit Auto-Suggestions**: When vulnerable software versions are found, MME searches the MSF Database and injects the exact `use exploit/...` commands directly into your final report.
 
-## Quick Start
+---
+
+## ⚡ Quick Start
 
 ### Installation
 1. Clone this repository.
 2. Run the install script: `./install.sh`
-3. Start Metasploit and load the plugin: `msfconsole -q -x "load mme"`
+3. Start Metasploit and load the plugin:
+   ```bash
+   msfconsole -q -x "load mme"
+   ```
 
-### Usage
+### Basic Usage
+To run a standard automated methodology against a single IP:
 ```bash
 msf6 > mme_scan 192.168.1.10
-[*] Starting Nmap scan...
-[+] Scan complete. Found 7 open services.
-[*] [1/7] Processing FTP on 192.168.1.10:21...
-[+] Methodology complete.
-msf6 > mme_report html
-[+] HTML report saved!
 ```
 
-## Architecture Overview
-The MME engine orchestrates Metasploit modules using a queue of discovered services. It matches each service to a corresponding YAML playbook in `~/.msf4/mme/playbooks/`. See [Architecture](docs/architecture.md) for details.
+To specify custom ports (just like Nmap):
+```bash
+msf6 > mme_scan 192.168.1.10 -p 80,443,445
+```
+
+---
+
+## 🏢 Enterprise Usage (Advanced)
+
+MME now supports advanced flags for professional engagements.
+
+### 1. Parallel Processing (Speed)
+Use the `--threads` flag to scan multiple services simultaneously. Perfect for large `/24` networks.
+```bash
+msf6 > mme_scan 10.0.0.0/24 --threads 5
+```
+
+### 2. Stealth Mode (Evasion)
+Use the `--profile stealth` flag to drop Nmap timing to `-T2` and introduce randomized sleep delays (2-5 seconds) between Metasploit module executions to avoid triggering rate-limits or IDS alarms.
+```bash
+msf6 > mme_scan 192.168.1.10 --profile stealth
+```
+
+### 3. Combining Flags
+You can combine all options together:
+```bash
+msf6 > mme_scan 10.0.0.0/24 --threads 3 --profile stealth -p 21,22,80,443
+```
+
+---
 
 ## Supported Services
 | Service | Port | Playbook Modules |
@@ -49,7 +79,7 @@ The MME engine orchestrates Metasploit modules using a queue of discovered servi
 | SNMP    | 161  | Enum, Login Check |
 
 ## Command Reference
-* `mme_scan <target>`: Run Nmap scan + full methodology
+* `mme_scan <target> [options]`: Run Nmap scan + full methodology
 * `mme_import <file>`: Import scan results (XML) and run methodology
 * `mme_status`: Show current engine status
 * `mme_report [format]`: Generate report (html/json)

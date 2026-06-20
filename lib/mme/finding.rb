@@ -9,7 +9,7 @@ module Mme
 
     attr_accessor :id, :title, :severity, :description, :evidence,
                   :impact, :remediation, :references, :host, :port,
-                  :service, :module_path, :timestamp, :status
+                  :service, :module_path, :timestamp, :status, :exploits
 
     def initialize(attrs = {})
       @id = attrs[:id] || SecureRandom.uuid
@@ -26,6 +26,7 @@ module Mme
       @module_path = attrs[:module_path] || ''
       @timestamp = attrs[:timestamp] || Time.now
       @status = attrs[:status] || 'confirmed'
+      @exploits = attrs[:exploits] || []
     end
 
     def severity_index
@@ -49,7 +50,7 @@ module Mme
         impact: @impact, remediation: @remediation,
         references: @references, host: @host, port: @port,
         service: @service, module_path: @module_path,
-        timestamp: @timestamp.to_s, status: @status
+        timestamp: @timestamp.to_s, status: @status, exploits: @exploits
       }
     end
 

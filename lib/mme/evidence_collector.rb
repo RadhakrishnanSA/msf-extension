@@ -43,7 +43,7 @@ module Mme
       @mutex.synchronize { @evidence_store << evidence }
 
       # Create a finding if evidence config suggests it
-      if has_meaningful_output?(module_result.output)
+      if has_meaningful_output?(module_result.output, module_result.module_path)
         finding = create_finding(evidence, step)
         evidence.finding_id = finding.id if finding
       end
@@ -70,6 +70,11 @@ module Mme
         module_path: evidence.module_path,
         status: determine_status(evidence)
       )
+
+      # Attempt to find exploits if this is a version finding
+      if evidence.evidence_type == 'service_version'
+        finding.exploits = find_exploits_for_version(evidence.content)
+      end
 
       @mutex.synchronize { @findings_store << finding }
 
@@ -122,19 +127,59 @@ module Mme
 
     private
 
+    def find_exploits_for_version(content)
+      return [] if content.nil? || content.strip.empty?
+      
+      # Extract some meaningful terms (ignore common noise words)
+      noise = %w[version is running the server on port banner]
+      words = content.gsub(/[^\w\s\.\-]/, ' ').split(/\s+/)
+      terms = words.reject { |w| w.length < 3 || noise.include?(w.downcase) }[0..2]
+      return [] if terms.empty?
+      
+      exploits = []
+      begin
+        if defined?(Msf::Modules::Metadata::Cache)
+          # Try to search cache
+          metadata = Msf::Modules::Metadata::Cache.instance.get_metadata rescue []
+          metadata.each do |m|
+            next unless m.type == 'exploit'
+            # Check if all terms match the module's description or name
+            search_text = "#{m.fullname} #{m.description} #{m.name}".downcase
+            if terms.all? { |t| search_text.include?(t.downcase) }
+              exploits << { fullname: m.fullname, name: m.name }
+              break if exploits.size >= 5
+            end
+          end
+        end
+      rescue => e
+        $stderr.puts("[!] Exploit search error: #{e.message}")
+      end
+      exploits
+    end
+
     def extract_meaningful_content(output)
       return '' if output.nil?
       lines = output.to_s.lines.reject { |l| l.strip.empty? || l.strip.start_with?('[*]') }
       lines.map(&:strip).join("\n")
     end
 
-    def has_meaningful_output?(output)
+    def has_meaningful_output?(output, module_path = '')
       return false if output.nil? || output.strip.empty?
+      output_lower = output.downcase
+
+      # Strict check for login/bruteforce modules
+      if module_path.to_s.include?('login') || module_path.to_s.include?('brute')
+        return false if output_lower.include?('0 credentials were successful')
+        return output_lower.include?('success') || output.include?('LOGIN SUCCESS') || output.include?('Logged in')
+      end
+
       # Check for positive result indicators
       positive_indicators = ['[+]', 'found', 'detected', 'version', 'running',
                              'allowed', 'enabled', 'anonymous', 'vulnerable',
                              'open', 'accessible']
-      output_lower = output.downcase
+      
+      return false if output_lower.include?('not vulnerable')
+      
       positive_indicators.any? { |indicator| output_lower.include?(indicator) }
     end
 

@@ -14,6 +14,7 @@ module Mme
     def commands
       {
         'mme_scan'      => 'Run Nmap scan and execute methodology against target',
+        'mme_ui'        => 'Launch the interactive MME configuration wizard',
         'mme_import'    => 'Import scan results and execute methodology',
         'mme_status'    => 'Show current MME engine status',
         'mme_report'    => 'Generate report (html/json)',
@@ -28,9 +29,13 @@ module Mme
 
     def cmd_mme_scan(*args)
       if args.empty?
-        print_error('Usage: mme_scan <target>')
-        print_error('Example: mme_scan 192.168.1.10')
-        print_error('Example: mme_scan 192.168.1.0/24')
+        print_error('Usage: mme_scan <target> [options]')
+        print_error('Options:')
+        print_error('  --threads N      Number of parallel threads (default: 1)')
+        print_error('  --profile NAME   Scan profile: normal, stealth (default: normal)')
+        print_error('  --no-brute       Skip all brute-force/login modules')
+        print_error('  -p PORTS         Ports to scan (e.g. -p 80,443)')
+        print_error('Example: mme_scan 192.168.1.10 --threads 3 --profile stealth --no-brute')
         return
       end
 
@@ -39,9 +44,72 @@ module Mme
         return
       end
 
-      target = args[0]
+      target = args.shift
+      opts = { threads: 1, profile: :normal, no_brute: false, nmap_opts: [] }
+      
+      while (arg = args.shift)
+        case arg
+        when '--threads'
+          opts[:threads] = args.shift.to_i
+        when '--profile'
+          opts[:profile] = args.shift.to_s.downcase.to_sym
+        when '--no-brute'
+          opts[:no_brute] = true
+        else
+          opts[:nmap_opts] << arg
+        end
+      end
+      
+      opts[:nmap_opts] = opts[:nmap_opts].empty? ? nil : opts[:nmap_opts].join(' ')
+
       engine = get_engine
-      engine.scan(target)
+      engine.scan(target, opts)
+    end
+
+    def cmd_mme_ui(*args)
+      print_status('')
+      print_status('=' * 50)
+      print_status(' MME Interactive Configuration Wizard')
+      print_status('=' * 50)
+      print_status('')
+
+      # Target
+      target = ''
+      while target.empty?
+        print('Target IP or CIDR (e.g. 192.168.1.10): ')
+        target = gets.to_s.strip
+      end
+
+      # Threads
+      print('Number of parallel threads? [1]: ')
+      threads_in = gets.to_s.strip
+      threads = threads_in.empty? ? 1 : threads_in.to_i
+
+      # Stealth
+      print('Enable Stealth Mode? (Slower Nmap, Adds Delays) [y/N]: ')
+      stealth_in = gets.to_s.strip.downcase
+      profile = (stealth_in == 'y' || stealth_in == 'yes') ? :stealth : :normal
+
+      # Brute-force
+      print('Enable Brute-Forcing / Login Attempts? [Y/n]: ')
+      brute_in = gets.to_s.strip.downcase
+      no_brute = (brute_in == 'n' || brute_in == 'no') ? true : false
+
+      print_status('')
+      print_status('Building configuration...')
+      
+      opts = {
+        threads: threads,
+        profile: profile,
+        no_brute: no_brute,
+        nmap_opts: nil
+      }
+
+      print_status("Launching: mme_scan #{target} --threads #{threads} --profile #{profile} #{no_brute ? '--no-brute' : ''}")
+      print_status('=' * 50)
+      
+      engine = get_engine
+      engine.scan(target, opts)
     end
 
     def cmd_mme_import(*args)

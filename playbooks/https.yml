@@ -45,7 +45,7 @@ steps:
       remediation: "Ensure certificates do not leak internal system names."
 
   - name: "SSL/TLS Version Detection"
-    module: "auxiliary/scanner/http/ssl_version"
+    module: "auxiliary/scanner/ssl/openssl_version"
     options: {}
     always_run: true
     evidence:

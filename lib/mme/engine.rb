@@ -22,14 +22,18 @@ module Mme
       @start_time = nil
       @end_time = nil
       @error_message = nil
+      @opts = {}
+      @mutex = Mutex.new
 
       # Load playbooks
       @playbook_engine.load_playbooks(mme_playbook_dir)
     end
 
     # Full workflow: Nmap scan → discover → queue → execute → report
-    def scan(target)
+    def scan(target, opts = {})
+      opts = { nmap_opts: opts } if opts.is_a?(String) || opts.nil?
       @target = target
+      @opts = opts
       @state = :scanning
       @start_time = Time.now
       @stop_requested = false
@@ -37,12 +41,12 @@ module Mme
       @evidence_collector.clear
 
       log_banner
-      log_good("Starting methodology scan against: #{target}")
+      log_good("Starting methodology scan against: #{target} (Threads: #{opts[:threads] || 1}, Profile: #{opts[:profile] || :normal})")
 
       begin
         # Step 1: Nmap scan
         log_status('[Phase 1/5] Running Nmap scan...')
-        services = @scanner.nmap_scan(target)
+        services = @scanner.nmap_scan(target, opts[:nmap_opts], opts[:profile])
 
         if services.empty?
           log_error('No open services discovered. Aborting.')
@@ -179,29 +183,51 @@ module Mme
 
       # Step 5: Generate report
       log_status('[Phase 5/5] Generating report...')
-      generate_report('html')
+      html_path = generate_report('html')
       generate_report('json')
 
       @state = :completed
       @end_time = Time.now
 
-      log_completion_summary
+      log_completion_summary(html_path)
     end
 
     def process_service_queue
-      while (service_entry = @service_queue.next_service)
-        break if @stop_requested
+      thread_count = @opts[:threads] || 1
+      thread_count = 1 if thread_count < 1
+      
+      if thread_count == 1
+        while (service_entry = @service_queue.next_service)
+          break if @stop_requested
+          process_service_with_logging(service_entry)
+        end
+      else
+        threads = []
+        log_status("Spinning up #{thread_count} parallel threads...")
+        thread_count.times do
+          threads << Thread.new do
+            while (service_entry = @service_queue.next_service)
+              break if @stop_requested
+              process_service_with_logging(service_entry)
+            end
+          end
+        end
+        threads.each(&:join)
+      end
+    end
 
-        progress = @service_queue.progress
-        idx = progress[:completed] + progress[:failed] + progress[:skipped] + 1
-        total = progress[:total]
+    def process_service_with_logging(service_entry)
+      progress = @service_queue.progress
+      idx = progress[:completed] + progress[:failed] + progress[:skipped] + 1
+      total = progress[:total]
 
+      @mutex.synchronize do
         log_status("\n#{'=' * 60}")
         log_status("[#{idx}/#{total}] Processing #{service_entry.name.upcase} on #{service_entry.host}:#{service_entry.port}")
         log_status('=' * 60)
-
-        process_service(service_entry)
       end
+
+      process_service(service_entry)
     end
 
     def process_service(service_entry)
@@ -214,8 +240,8 @@ module Mme
       end
 
       begin
-        result = @playbook_engine.execute(playbook, service_entry, @evidence_collector)
-        @playbook_results << result
+        result = @playbook_engine.execute(playbook, service_entry, @evidence_collector, @opts)
+        @mutex.synchronize { @playbook_results << result }
         @service_queue.complete(service_entry)
       rescue => e
         log_error("Playbook execution failed for #{service_entry}: #{e.message}")
@@ -247,7 +273,7 @@ module Mme
       log_status('')
     end
 
-    def log_completion_summary
+    def log_completion_summary(html_path = nil)
       duration = (@end_time - @start_time).round(1)
       progress = @service_queue.progress
       summary = @evidence_collector.summary
@@ -269,7 +295,23 @@ module Mme
         end
       end
 
+      log_status('-' * 60)
+      log_status('Modules Executed & Findings:')
+      @playbook_results.each do |pr|
+        log_status("  Service: #{pr.service_entry.name.upcase} (#{pr.service_entry.host}:#{pr.service_entry.port})")
+        pr.step_results.each do |sr|
+          status_icon = sr.success ? '[+]' : '[-]'
+          log_status("    #{status_icon} #{sr.module_path}")
+        end
+      end
+      
       log_status('=' * 60)
+      
+      if html_path
+        log_good("Report generated successfully!")
+        log_good("To view the report, click this link in your terminal:")
+        log_good("file://#{html_path}")
+      end
     end
 
     def mme_base_dir

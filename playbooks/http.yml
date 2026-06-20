@@ -44,8 +44,7 @@ steps:
 
   - name: "HTTP Directory Scanner"
     module: "auxiliary/scanner/http/dir_scanner"
-    options:
-      DICTIONARY: "/usr/share/metasploit-framework/data/wordlists/directory.txt"
+    options: {}
     always_run: true
     evidence:
       type: "accessible_resource"
