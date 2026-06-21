@@ -5,7 +5,7 @@ require_relative 'config'
 module Mme
   # Input validation utilities
   module Validator
-    TARGET_PATTERN = %r{\A[a-zA-Z0-9.\-_/,:]+\z}.freeze
+    TARGET_PATTERN = %r{\A[a-zA-Z0-9.\-_/,:?=&]+\z}.freeze
     VALID_PROFILES = %i[normal stealth].freeze
     VALID_REPORT_FORMATS = %w[html json md markdown pdf].freeze
 
@@ -15,8 +15,7 @@ module Mme
     def self.validate_target!(target)
       raise ValidationError, 'Target cannot be empty' if target.nil? || target.strip.empty?
       unless target.match?(TARGET_PATTERN)
-        raise ValidationError,
-              "Invalid characters in target: #{target}. Only alphanumeric, dots, hyphens, underscores, slashes, commas, and colons are allowed."
+        raise ValidationError, "Invalid characters in target: #{target}. Only alphanumeric, dots, hyphens, underscores, slashes, commas, colons, ampersands, equals, and question marks are allowed."
       end
       raise ValidationError, "Target is too long (max 253 characters): #{target}" if target.length > 253
 

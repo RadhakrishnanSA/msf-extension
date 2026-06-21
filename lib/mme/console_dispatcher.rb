@@ -165,7 +165,7 @@ module Mme
       # Target
       target = ''
       while target.empty?
-        print('Target IP or CIDR (e.g. 192.168.1.10): ')
+        print('Target IP, CIDR, Domain, or URL (e.g. 192.168.1.10, foo.com, https://foo.com): ')
         target = gets.to_s.strip
       end
 

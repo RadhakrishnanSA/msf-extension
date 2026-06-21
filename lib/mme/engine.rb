@@ -23,6 +23,7 @@ module Mme
       @playbook_engine = PlaybookEngine.new(framework, console_output)
       @db_mutex = Mutex.new
       @evidence_collector = EvidenceCollector.new(framework, @db_mutex)
+      @scanner = Scanner.new(framework, console_output)
       @report_generator = ReportGenerator.new(mme_template_dir)
       @playbook_results = []
       @unmatched_services = []
