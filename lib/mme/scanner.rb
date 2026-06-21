@@ -41,7 +41,7 @@ module Mme
       # Validate target input to prevent basic command injection (defense in depth)
       # Since we are using an input file (-iL), the injection risk on the command line is mitigated,
       # but we still want to ensure the IPs themselves are clean.
-      invalid_targets = targets.reject { |t| t.match?(/^[a-zA-Z0-9.\-_/,:]+$/) }
+      invalid_targets = targets.reject { |t| t.match?(%r{^[a-zA-Z0-9.\-_/,:]+$}) }
       if invalid_targets.any?
         log_error("Invalid characters in target list. First offending target: #{invalid_targets.first}")
         return []
@@ -108,7 +108,7 @@ module Mme
         return []
       end
 
-      discover_services(target)
+      discover_services(targets)
     end
 
     # Query MSF database for open services in the current workspace
@@ -121,16 +121,24 @@ module Mme
       services = []
       workspace = @framework.db.workspace
 
-      # If targets is a single string (from older flows), wrap it in an array or RangeWalker
+      # If targets is an array (from Phase 0), we can join them for RangeWalker
       target_list = Array(targets)
+      
+      range_walker = nil
+      if target_list.any?
+        begin
+          range_walker = ::Rex::Socket::RangeWalker.new(target_list.join(' '))
+        rescue => e
+          log_warning("Could not parse target range for filtering: #{e.message}")
+        end
+      end
       
       @framework.db.services(workspace: workspace).each do |svc|
         next unless svc.state == 'open'
         
         # Filter by targets if provided
-        if target_list.any?
-          # Strictly check inclusion. This is simpler than RangeWalker for an explicit array of Phase 0 IPs
-          next unless target_list.include?(svc.host.address) || target_list.include?(svc.host.address.to_s)
+        if range_walker && !range_walker.include?(svc.host.address)
+          next
         end
 
         entry = ServiceEntry.new(

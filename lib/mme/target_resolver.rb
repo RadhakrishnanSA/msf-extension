@@ -4,6 +4,7 @@ require 'net/http'
 require 'json'
 require 'open3'
 require 'fileutils'
+require 'set'
 
 module Mme
   class TargetResolver
@@ -83,10 +84,10 @@ module Mme
       end
 
       # Basic IP regex
-      if target.match?(/^(\d{1,3}\.){3}\d{1,3}$/)
+      if target.match?(/\A(\d{1,3}\.){3}\d{1,3}\z/)
         [target, :ip]
       # Basic CIDR or hyphen range regex
-      elsif target.match?(/^(\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2}|-\d{1,3})$/)
+      elsif target.match?(/\A(\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2}|-\d{1,3})\z/)
         [target, :range]
       else
         [target, :domain]
