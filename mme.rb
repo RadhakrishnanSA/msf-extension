@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Metasploit Methodology Engine (MME)
 # A Metasploit Framework plugin that automates penetration testing methodologies
 #
@@ -27,9 +29,10 @@ require 'lib/mme/report_generator'
 require 'lib/mme/engine'
 require 'lib/mme/console_dispatcher'
 
+# Metasploit module namespace
 module Msf
+  # MME Plugin class
   class Plugin::Mme < Msf::Plugin
-
     def initialize(framework, opts)
       super
       add_console_dispatcher(::Mme::ConsoleDispatcher)

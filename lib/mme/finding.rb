@@ -1,6 +1,10 @@
+# frozen_string_literal: true
+
 require 'securerandom'
 
+# MME namespace
 module Mme
+  # Finding representation
   class Finding
     include Comparable
 

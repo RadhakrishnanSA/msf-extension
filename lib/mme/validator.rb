@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require_relative 'config'
 
 module Mme
@@ -6,6 +8,7 @@ module Mme
     VALID_PROFILES = %i[normal stealth].freeze
     VALID_REPORT_FORMATS = %w[html json md markdown pdf].freeze
 
+    # Exception raised for validation errors.
     class ValidationError < StandardError; end
 
     def self.validate_target!(target)

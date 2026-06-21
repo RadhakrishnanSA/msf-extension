@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'yaml'
 
 module Mme
@@ -51,11 +53,22 @@ module Mme
       pb
     rescue YAML::SyntaxError => e
       raise "Playbook YAML syntax error in #{path}: #{e.message}"
-    rescue => e
+    rescue StandardError => e
       raise "Failed to load playbook #{path}: #{e.message}"
     end
 
     def self.validate_data!(data, path)
+      errors = validate_top_level(data, path)
+      return errors unless data.is_a?(Hash) && data['steps'].is_a?(Array)
+
+      data['steps'].each_with_index do |step, idx|
+        validate_step(step, idx, path, errors)
+      end
+
+      errors
+    end
+
+    def self.validate_top_level(data, path)
       errors = []
       errors << "#{path}: Top-level must be a Hash, got #{data.class}" unless data.is_a?(Hash)
       return errors unless data.is_a?(Hash)
@@ -63,34 +76,33 @@ module Mme
       errors << "#{path}: Missing required field 'service'" unless data['service'].is_a?(String) && !data['service'].empty?
       errors << "#{path}: 'ports' must be an Array" if data.key?('ports') && !data['ports'].is_a?(Array)
       errors << "#{path}: Missing or empty 'steps' array" unless data['steps'].is_a?(Array) && !data['steps'].empty?
+      errors
+    end
 
-      if data['steps'].is_a?(Array)
-        data['steps'].each_with_index do |step, idx|
-          prefix = "#{path}: steps[#{idx}]"
-          errors << "#{prefix}: must be a Hash" unless step.is_a?(Hash)
-          next unless step.is_a?(Hash)
-          errors << "#{prefix}: missing 'name'" unless step['name'].is_a?(String) && !step['name'].empty?
-          errors << "#{prefix}: missing 'module'" unless step['module'].is_a?(String) && !step['module'].empty?
-          if step['condition']
-            unless step['condition'].is_a?(String) && step['condition'].match?(/\A\S+\s+=~\s+\/.+\/i?\z/)
-              errors << "#{prefix}: 'condition' must be in format 'step_id =~ /regex/' or 'any =~ /regex/i'"
-            end
-          end
-          %w[on_success on_failure].each do |field|
-            if step[field] && !(step[field].is_a?(String) && !step[field].empty?)
-              errors << "#{prefix}: '#{field}' must be a non-empty string (step ID)"
-            end
-          end
-          if step['options'] && !step['options'].is_a?(Hash)
-            errors << "#{prefix}: 'options' must be a Hash"
-          end
-          if step['evidence'] && !step['evidence'].is_a?(Hash)
-            errors << "#{prefix}: 'evidence' must be a Hash"
-          end
+    def self.validate_step(step, idx, path, errors)
+      prefix = "#{path}: steps[#{idx}]"
+      unless step.is_a?(Hash)
+        errors << "#{prefix}: must be a Hash"
+        return
+      end
+
+      errors << "#{prefix}: missing 'name'" unless step['name'].is_a?(String) && !step['name'].empty?
+      errors << "#{prefix}: missing 'module'" unless step['module'].is_a?(String) && !step['module'].empty?
+
+      if step['condition']
+        unless step['condition'].is_a?(String) && step['condition'].match?(/\A\S+\s+=~\s+\/.+\/i?\z/)
+          errors << "#{prefix}: 'condition' must be in format 'step_id =~ /regex/' or 'any =~ /regex/i'"
         end
       end
 
-      errors
+      %w[on_success on_failure].each do |field|
+        if step[field] && !(step[field].is_a?(String) && !step[field].empty?)
+          errors << "#{prefix}: '#{field}' must be a non-empty string (step ID)"
+        end
+      end
+
+      errors << "#{prefix}: 'options' must be a Hash" if step['options'] && !step['options'].is_a?(Hash)
+      errors << "#{prefix}: 'evidence' must be a Hash" if step['evidence'] && !step['evidence'].is_a?(Hash)
     end
 
     def matches_service?(service_name, port = nil)

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'securerandom'
 
 module Mme
@@ -9,6 +11,7 @@ module Mme
     keyword_init: true
   )
 
+  # Collects and manages evidence and findings from module executions.
   class EvidenceCollector
     attr_reader :evidence_store, :findings_store
 
@@ -132,15 +135,15 @@ module Mme
 
     def find_exploits_for_version(content)
       return [] if content.nil? || content.strip.empty?
-      
+
       product = nil
       version = nil
       terms = []
-      
+
       # Attempt to parse specific product and version strings
-      if content.match(/([a-zA-Z\-_]+(?:\s+[a-zA-Z\-_]+)*)[\s\/]+(\d+\.\d+(?:\.\d+)*[a-zA-Z0-9\-\.]*)/)
-        product = $1.strip.downcase
-        version = $2.strip
+      if (m = content.match(/([a-zA-Z\-_]+(?:\s+[a-zA-Z\-_]+)*)[\s\/]+(\d+\.\d+(?:\.\d+)*[a-zA-Z0-9\-\.]*)/))
+        product = m[1].strip.downcase
+        version = m[2].strip
       else
         # Fallback to old crude extraction
         noise = %w[version is running the server on port banner]
@@ -148,18 +151,22 @@ module Mme
         terms = words.reject { |w| w.length < 3 || noise.include?(w.downcase) }[0..2]
         return [] if terms.empty?
       end
-      
+
       exploits = []
       begin
         if defined?(Msf::Modules::Metadata::Cache)
           # Try to search cache
-          metadata = Msf::Modules::Metadata::Cache.instance.get_metadata rescue []
+          metadata = begin
+            Msf::Modules::Metadata::Cache.instance.get_metadata
+          rescue StandardError
+            []
+          end
           metadata.each do |m|
             next unless m.type == 'exploit'
             
             match_confidence = nil
             search_text = "#{m.fullname} #{m.description} #{m.name}".downcase
-            
+
             if product && version
               if search_text.include?(product)
                 if search_text.include?(version)
@@ -174,7 +181,7 @@ module Mme
                 match_confidence = 'Possible Match'
               end
             end
-            
+
             if match_confidence
               exploits << { 
                 fullname: m.fullname, 
@@ -185,17 +192,17 @@ module Mme
             end
           end
         end
-      rescue => e
-        $stderr.puts("[!] Exploit search error: #{e.message}")
+      rescue StandardError => e
+        warn("[!] Exploit search error: #{e.message}")
       end
-      
+
       # Ranks in MSF: Excellent (600), Great (500), Good (400), Normal (300)
       exploits.sort_by { |e| -e[:rank] }[0..4]
     end
 
     def extract_meaningful_content(output)
       return '' if output.nil?
-      
+
       # Filter out noise but keep actual data (even if it starts with [*])
       noise_patterns = [
         /Scanned \d+ of \d+ hosts/,
@@ -208,15 +215,15 @@ module Mme
       lines = output.to_s.lines.reject do |l|
         l.strip.empty? || noise_patterns.any? { |p| l.match?(p) }
       end
-      
-      cleaned = lines.map do |l| 
+
+      cleaned = lines.map do |l|
         l = l.strip
         l = l.sub(/^\[\+\]\s+/, '')
         l = l.sub(/^\[\*\]\s+/, '')
         l = l.sub(/^\d+\.\d+\.\d+\.\d+:\d+\s+-\s+/, '')
         l
       end
-      
+
       cleaned.join("\n")
     end
 
@@ -234,9 +241,9 @@ module Mme
       positive_indicators = ['[+]', 'found', 'detected', 'version', 'running',
                              'allowed', 'enabled', 'anonymous', 'vulnerable',
                              'open', 'accessible']
-      
+
       return false if output_lower.include?('not vulnerable')
-      
+
       positive_indicators.any? { |indicator| output_lower.include?(indicator) }
     end
 
@@ -284,9 +291,9 @@ module Mme
               refs: refs
             )
           end
-        rescue => e
+        rescue StandardError => e
           # Don't let DB errors stop the engine
-          $stderr.puts("[!] DB storage error: #{e.message}")
+          warn("[!] DB storage error: #{e.message}")
         end
       end
     end

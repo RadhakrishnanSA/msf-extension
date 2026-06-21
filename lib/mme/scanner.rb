@@ -1,7 +1,10 @@
+# frozen_string_literal: true
+
 require 'open3'
 require 'fileutils'
 
 module Mme
+  # Handles Nmap scanning and importing
   class Scanner
     NMAP_DEFAULT_OPTS = '-sV -sC -T4 -Pn --open'
     NMAP_OUTPUT_FORMAT = '-oX'
@@ -22,7 +25,7 @@ module Mme
         log_error('Database is not connected. Run db_connect first.')
         return []
       end
-      
+
       if targets.empty?
         log_warning('No targets provided to Nmap scan.')
         return []
@@ -33,7 +36,7 @@ module Mme
       output_dir = File.join(mme_data_dir, 'scans')
       FileUtils.mkdir_p(output_dir)
       output_file = File.join(output_dir, "nmap_#{timestamp}.xml")
-      
+
       # Create input list file for Nmap
       input_list_file = File.join(output_dir, "nmap_targets_#{timestamp}.txt")
       File.write(input_list_file, targets.join("\n"))
@@ -53,7 +56,7 @@ module Mme
         opts = opts.gsub('-T4', '-T2')
         opts += ' --max-rate 50' unless opts.include?('--max-rate')
       end
-      
+
       nmap_args = opts.split + [NMAP_OUTPUT_FORMAT, output_file, '-iL', input_list_file]
 
       log_status("Starting Nmap scan: nmap #{nmap_args.join(' ')}")
@@ -71,7 +74,7 @@ module Mme
       rescue Errno::ENOENT
         log_error('Nmap executable not found. Please install Nmap.')
         return []
-      rescue => e
+      rescue StandardError => e
         log_error("Nmap scan error: #{e.message}")
         return []
       ensure
@@ -103,7 +106,7 @@ module Mme
         # No user-controlled data reaches a shell here.
         @framework.db.import_file(filename: path)
         log_good("Successfully imported: #{path}")
-      rescue => e
+      rescue StandardError => e
         log_error("Import failed: #{e.message}")
         return []
       end
@@ -123,19 +126,19 @@ module Mme
 
       # If targets is an array (from Phase 0), we can join them for RangeWalker
       target_list = Array(targets)
-      
+
       range_walker = nil
       if target_list.any?
         begin
           range_walker = ::Rex::Socket::RangeWalker.new(target_list.join(' '))
-        rescue => e
+        rescue StandardError => e
           log_warning("Could not parse target range for filtering: #{e.message}")
         end
       end
-      
+
       @framework.db.services(workspace: workspace).each do |svc|
         next unless svc.state == 'open'
-        
+
         # Filter by targets if provided
         if range_walker && !range_walker.include?(svc.host.address)
           next
@@ -160,7 +163,7 @@ module Mme
 
     def nmap_available?
       system('nmap --version > /dev/null 2>&1') || system('nmap --version > NUL 2>&1')
-    rescue
+    rescue StandardError
       false
     end
 
@@ -179,7 +182,7 @@ module Mme
     end
 
     def log_error(msg)
-      @console_output ? @console_output.print_error(msg) : $stderr.puts("[-] #{msg}")
+      @console_output ? @console_output.print_error(msg) : warn("[-] #{msg}")
     end
   end
 end

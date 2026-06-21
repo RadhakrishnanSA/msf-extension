@@ -1,6 +1,10 @@
+# frozen_string_literal: true
+
 require 'thread'
 
+# MME namespace
 module Mme
+  # Struct for service entry
   ServiceEntry = Struct.new(:host, :port, :proto, :name, :info, :status, keyword_init: true) do
     def to_s
       "#{name || 'unknown'}://#{host}:#{port}"
@@ -11,6 +15,7 @@ module Mme
     end
   end
 
+  # Queue for managing services
   class ServiceQueue
     # Port-to-service name fallback mapping
     PORT_SERVICE_MAP = {

@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 require 'logger'
 require 'fileutils'
 require 'time'
 
 module Mme
+  # Handles audit logging for the methodology engine.
   class AuditLogger
     def self.instance
       @instance ||= new
@@ -11,10 +14,10 @@ module Mme
     def initialize
       log_dir = File.join(Dir.home, '.msf4', 'mme', 'logs')
       FileUtils.mkdir_p(log_dir) unless Dir.exist?(log_dir)
-      
+
       log_file = File.join(log_dir, 'mme_audit.log')
       @logger = Logger.new(log_file, 'daily')
-      @logger.formatter = proc do |severity, datetime, progname, msg|
+      @logger.formatter = proc do |severity, datetime, _progname, msg|
         "#{datetime.iso8601} [#{severity}] #{msg}\n"
       end
     end

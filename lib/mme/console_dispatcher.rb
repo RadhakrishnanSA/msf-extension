@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'optparse'
 require_relative 'config'
 require_relative 'scope'
@@ -6,6 +8,7 @@ require_relative 'playbook'
 require_relative 'validator'
 
 module Mme
+  # MSF Console dispatcher for MME commands.
   class ConsoleDispatcher
     include Msf::Ui::Console::CommandDispatcher
 
@@ -110,7 +113,7 @@ module Mme
       if defined?(Validator) && Validator.respond_to?(:validate_target!)
         begin
           Validator.validate_target!(target)
-        rescue => e
+        rescue StandardError => e
           print_error(e.message)
           return
         end
@@ -142,11 +145,11 @@ module Mme
         print_warning('=' * 60)
       end
 
-      engine = get_engine
-      engine.scan(target, opts)
+      engine_inst = engine
+      engine_inst.scan(target, opts)
     end
 
-    def cmd_mme_ui(*args)
+    def cmd_mme_ui(*_args)
       print_status('')
       print_status('=' * 50)
       print_status(' MME Interactive Configuration Wizard')
@@ -177,7 +180,7 @@ module Mme
 
       print_status('')
       print_status('Building configuration...')
-      
+
       opts = {
         threads: threads,
         profile: profile,
@@ -187,9 +190,9 @@ module Mme
 
       print_status("Launching: mme_scan #{target} --threads #{threads} --profile #{profile} #{brute ? '--brute' : ''}")
       print_status('=' * 50)
-      
-      engine = get_engine
-      engine.scan(target, opts)
+
+      engine_inst = engine
+      engine_inst.scan(target, opts)
     end
 
     def cmd_mme_import(*args)
@@ -214,11 +217,11 @@ module Mme
         return
       end
 
-      engine = get_engine
-      engine.import(file_path)
+      engine_inst = engine
+      engine_inst.import(file_path)
     end
 
-    def cmd_mme_status(*args)
+    def cmd_mme_status(*_args)
       unless @engine
         print_status('MME engine has not been initialized. Run mme_scan or mme_import first.')
         return
@@ -282,10 +285,10 @@ module Mme
     end
 
     def cmd_mme_playbooks(*args)
-      engine = get_engine
-      
+      engine_inst = engine
+
       if args.include?('--gaps')
-        gaps = engine.unmatched_services || []
+        gaps = engine_inst.unmatched_services || []
         if gaps.empty?
           print_status("No coverage gaps detected from the last run.")
         else
@@ -297,7 +300,7 @@ module Mme
         return
       end
 
-      playbooks = engine.playbooks
+      playbooks = engine_inst.playbooks
 
       if playbooks.empty?
         print_warning('No playbooks loaded.')
@@ -321,7 +324,7 @@ module Mme
       print_line(tbl.to_s)
     end
 
-    def cmd_mme_findings(*args)
+    def cmd_mme_findings(*_args)
       unless @engine
         print_error('No findings available. Run mme_scan or mme_import first.')
         return
@@ -354,7 +357,7 @@ module Mme
       end
     end
 
-    def cmd_mme_stop(*args)
+    def cmd_mme_stop(*_args)
       unless @engine
         print_status('No engine running.')
         return
@@ -397,7 +400,7 @@ module Mme
       end
     end
 
-    def cmd_mme_checkpoints(*args)
+    def cmd_mme_checkpoints(*_args)
       sessions = StateManager.list_sessions
       if sessions.empty?
         print_status('No resumable checkpoints found.')
@@ -407,7 +410,7 @@ module Mme
       print_status('')
       print_status('Resumable MME Checkpoints')
       print_status('=' * 80)
-      
+
       tbl = Rex::Text::Table.new(
         'Header'  => 'Checkpoints',
         'Indent'  => 2,
@@ -423,10 +426,10 @@ module Mme
       print_status("Use `mme_resume <session_id>` to continue a session.")
     end
 
-    def cmd_mme_sessions(*args)
-      engine = get_engine
-      sessions = engine.gained_sessions || []
-      
+    def cmd_mme_sessions(*_args)
+      engine_inst = engine
+      sessions = engine_inst.gained_sessions || []
+
       if sessions.empty?
         print_status("No MSF sessions gained via MME yet.")
         return
@@ -435,7 +438,7 @@ module Mme
       print_status('')
       print_status('MSF Sessions Acquired via MME')
       print_status('=' * 80)
-      
+
       sessions.each do |s|
         print_status("Session #{s[:session_id]} - #{s[:info]}")
         print_status("  Host: #{s[:host]}:#{s[:port]}")
@@ -465,8 +468,8 @@ module Mme
         return
       end
 
-      engine = get_engine
-      engine.resume(session_id)
+      engine_inst = engine
+      engine_inst.resume(session_id)
     end
 
     def cmd_mme_scope(*args)
@@ -523,7 +526,7 @@ module Mme
       end
     end
 
-    def cmd_mme_doctor(*args)
+    def cmd_mme_doctor(*_args)
       print_status('')
       print_status('MME Doctor — Environment Health Check')
       print_status('=' * 50)
@@ -560,7 +563,7 @@ module Mme
       end
 
       # 4. Playbook directory readable and all playbooks valid
-      engine = get_engine
+      engine_inst = engine
       pb_dir = File.join(mme_dir, 'playbooks')
       if File.directory?(pb_dir) && File.readable?(pb_dir)
         pb_files = Dir.glob(File.join(pb_dir, '*.yml'))
@@ -568,7 +571,7 @@ module Mme
         pb_files.each do |f|
           begin
             Mme::Playbook.load_from_file(f)
-          rescue => e
+          rescue StandardError => e
             pb_errors << "  #{File.basename(f)}: #{e.message}"
           end
         end
@@ -636,7 +639,7 @@ module Mme
       end
     end
 
-    def cmd_mme_help(*args)
+    def cmd_mme_help(*_args)
       print_status('')
       print_status(Mme::BANNER)
       print_status('=' * 55)
@@ -668,7 +671,7 @@ module Mme
     end
 
     # Tab completion
-    def cmd_mme_report_tabs(str, words)
+    def cmd_mme_report_tabs(_str, _words)
       %w[html json md markdown pdf]
     end
 
@@ -735,12 +738,12 @@ module Mme
         print_good("Exported #{exported}/#{findings.size} findings to DefectDojo")
       rescue LoadError
         print_error('net/http is required for DefectDojo export (should be part of Ruby stdlib)')
-      rescue => e
+      rescue StandardError => e
         print_error("DefectDojo export error: #{e.message}")
       end
     end
 
-    def get_engine
+    def engine
       @engine ||= Engine.new(framework, driver.output)
     end
   end

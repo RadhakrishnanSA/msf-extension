@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'timeout'
 require_relative 'config'
 require_relative 'output_capture'
@@ -7,6 +9,7 @@ module Mme
   # Result of a module execution
   ModuleResult = Struct.new(:module_path, :output, :executed, :timestamp, :error, :duration, :status, keyword_init: true)
 
+  # Runner for executing Metasploit modules
   class ModuleRunner
     # Default timeout for module execution (seconds)
     DEFAULT_TIMEOUT = 300
@@ -114,7 +117,7 @@ module Mme
     end
 
     def log_error(msg)
-      @console_output ? @console_output.print_error(msg) : $stderr.puts("[-] #{msg}")
+      @console_output ? @console_output.print_error(msg) : warn("[-] #{msg}")
     end
   end
 end

@@ -1,6 +1,9 @@
+# frozen_string_literal: true
+
 require 'fileutils'
 
 module Mme
+  # Manages target scope
   class Scope
     def initialize(workspace_name)
       # SECURITY: Sanitize workspace name before using in file paths to prevent
@@ -60,22 +63,22 @@ module Mme
         # To test inclusion, we can see if ANY IP in the target falls within the scope entries.
         # But for simplicity, we check if the target string as an IP is in the scope CIDR
         target_walker = ::Rex::Socket::RangeWalker.new(target)
-      rescue
+      rescue StandardError
         return false # Can't parse target, reject it
       end
-      
+
       entries.each do |entry|
         begin
           entry_walker = ::Rex::Socket::RangeWalker.new(entry)
           # A simple check: if the first IP of the target is in the scope, we allow it.
           # A true enterprise tool would check if the entire target range is a subset of the scope.
           # But MSF RangeWalker is limited. We'll check the first IP.
-          return true if entry_walker.include?(target_walker.first) 
-        rescue
+          return true if entry_walker.include?(target_walker.first)
+        rescue StandardError
           next
         end
       end
-      
+
       false
     end
 

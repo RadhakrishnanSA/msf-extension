@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 require_relative 'state_manager'
 require_relative 'audit_logger'
 require_relative 'target_resolver'
 
 module Mme
+  # Core methodology engine.
   class Engine
     STATES = %i[idle scanning importing running completed stopped error].freeze
 
@@ -42,7 +45,7 @@ module Mme
       opts = { nmap_opts: opts } if opts.is_a?(String) || opts.nil?
       @target = target
       @start_time = Time.now
-      
+
       @state_manager = StateManager.new
       @session_id = @state_manager.session_id
       @stop_requested = false
@@ -94,7 +97,7 @@ module Mme
         log_warning('Scan interrupted by user.')
         @state = :stopped
         @state_manager.save(@target, @start_time, @opts, @service_queue)
-      rescue => e
+      rescue StandardError => e
         log_error("Engine error: #{e.message}")
         @error_message = e.message
         @state = :error
@@ -134,7 +137,7 @@ module Mme
         log_warning('Import interrupted by user.')
         @state = :stopped
         @end_time = Time.now
-      rescue => e
+      rescue StandardError => e
         log_error("Engine error: #{e.message}")
         @error_message = e.message
         @state = :error
@@ -163,7 +166,7 @@ module Mme
 
       log_banner
       log_good("Resuming session #{session_id} for target: #{@target}")
-      
+
       # Jump straight to queue execution since we already have the queue built
       process_service_queue
 
@@ -185,7 +188,7 @@ module Mme
       log_warning('Resume interrupted by user.')
       @state = :stopped
       @state_manager.save(@target, @start_time, @opts, @service_queue)
-    rescue => e
+    rescue StandardError => e
       log_error("Engine error during resume: #{e.message}")
       @error_message = e.message
       @state = :error
@@ -261,7 +264,7 @@ module Mme
     def run_methodology(services, resolved_hosts_map = [])
       # Phase 2: Build service queue
       log_status('[Phase 2/6] Building service queue...')
-      
+
       # If we have hostnames from Phase 0, inject them into the services if they aren't bare IPs
       services.each do |svc|
         mapping = resolved_hosts_map.find { |m| m[:ip] == svc.host }
@@ -272,7 +275,7 @@ module Mme
         end
         @service_queue.add(svc)
       end
-      
+
       log_good("Service queue built: #{@service_queue.size} services across #{@service_queue.hosts.size} hosts")
       log_status(@service_queue.to_s)
 
@@ -302,7 +305,7 @@ module Mme
     def process_service_queue
       requested_threads = @opts[:threads] || 1
       requested_threads = 1 if requested_threads < 1
-      
+
       global_max = Config.get('global_max_threads') || 10
       if requested_threads > global_max
         log_warning("[!] Requested #{requested_threads} threads, but global max is #{global_max}. Capping at #{global_max}.")
@@ -310,7 +313,7 @@ module Mme
       else
         thread_count = requested_threads
       end
-      
+
       if thread_count == 1
         while (service_entry = @service_queue.next_service)
           break if @stop_requested
@@ -368,17 +371,17 @@ module Mme
         @mutex.synchronize { @playbook_results << result }
         @service_queue.complete(service_entry)
         @state_manager.save(@target, @start_time, @opts, @service_queue)
-      rescue => e
+      rescue StandardError => e
         if e.class.name.include?('ConnectionRefused') || e.class.name.include?('ConnectionTimeout')
           @connection_errors ||= Hash.new(0)
           @connection_errors[service_entry.host] += 1
-          
+
           if @connection_errors[service_entry.host] >= 3
             log_error("[!] Host #{service_entry.host} appears unreachable (3 consecutive errors). Skipping remaining services.")
             @unreachable_hosts[service_entry.host] = true
           end
         end
-        
+
         log_error("Playbook execution failed for #{service_entry}: #{e.message}")
         @service_queue.fail(service_entry)
         @state_manager.save(@target, @start_time, @opts, @service_queue)
@@ -442,10 +445,10 @@ module Mme
           log_status("    #{status_icon} #{sr.module_path}")
         end
       end
-      
+
       # Clean up state file since we finished normally
       @state_manager.delete
-      
+
       if html_path || md_path
         log_good("Report(s) generated successfully!")
         log_good("HTML: file://#{html_path}") if html_path
@@ -489,12 +492,12 @@ module Mme
 
     def log_error(msg)
       AuditLogger.instance.error(msg)
-      @console_output ? @console_output.print_error(msg) : $stderr.puts("[-] #{msg}")
+      @console_output ? @console_output.print_error(msg) : warn("[-] #{msg}")
     end
 
     def log_warning(msg)
       AuditLogger.instance.warn(msg)
-      @console_output ? @console_output.print_warning(msg) : $stderr.puts("[!] #{msg}")
+      @console_output ? @console_output.print_warning(msg) : warn("[!] #{msg}")
     end
 
     def send_webhook_notification(url)
@@ -535,7 +538,7 @@ module Mme
         else
           log_warning("Webhook notification failed: HTTP #{response.code}")
         end
-      rescue => e
+      rescue StandardError => e
         log_warning("Webhook notification error: #{e.message}")
       end
     end

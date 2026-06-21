@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'uri'
 require 'resolv'
 require 'net/http'
@@ -104,19 +106,19 @@ module Mme
 
     def process_range(range, scope, result, opts)
       if opts[:no_pingsweep]
-        log_status("  [*] Skipping ping sweep (--no-pingsweep). Using raw range.")
-        # We don't expand the CIDR here, we just pass it to Nmap in Phase 1
-        # However, we must scope check it if scope exists, which is tricky for a CIDR.
-        # If scope is active, it's safer to expand it or let Nmap expand it.
-        # For simplicity, if we skip sweep, we trust Nmap to handle it but we warn.
-        log_warning("  [!] Scope checks are deferred to Nmap for raw ranges without ping sweep.")
+        log_status('  [*] Skipping ping sweep (--no-pingsweep). Using raw range.')
+        log_warning('  [!] Scope checks are deferred to Nmap for raw ranges without ping sweep.')
         result.resolved_hosts << { ip: range, hostname: nil }
         return
       end
 
+      live_ips = run_ping_sweep(range)
+      filter_by_scope(live_ips, scope, result)
+    end
+
+    def run_ping_sweep(range)
       log_status("  [*] Running ICMP/ARP ping sweep against #{range}...")
       
-      # Use Nmap for fast ping sweep
       output_dir = File.join(Dir.home, '.msf4', 'mme', 'scans')
       FileUtils.mkdir_p(output_dir)
       temp_xml = File.join(output_dir, "ping_sweep_#{Time.now.to_i}.xml")
@@ -128,23 +130,24 @@ module Mme
         
         unless status.success?
           log_error("  [-] Ping sweep failed: #{stdout}")
-          return
+          return []
         end
 
-        # Parse Nmap XML for 'Up' hosts (Crude but safe without full nokogiri dependency)
         live_ips = extract_live_ips_from_xml(temp_xml)
         log_status("  [+] Ping sweep discovered #{live_ips.size} live hosts.")
-        
-        live_ips.each do |ip|
-          if scope.empty? || scope.include?(ip)
-            result.resolved_hosts << { ip: ip, hostname: nil }
-          else
-            result.excluded_hosts << ip
-          end
-        end
-
+        live_ips
       ensure
         File.delete(temp_xml) if File.exist?(temp_xml)
+      end
+    end
+
+    def filter_by_scope(ips, scope, result)
+      ips.each do |ip|
+        if scope.empty? || scope.include?(ip)
+          result.resolved_hosts << { ip: ip, hostname: nil }
+        else
+          result.excluded_hosts << ip
+        end
       end
     end
 
@@ -159,18 +162,19 @@ module Mme
         log_good("  [+] Discovered #{subdomains.size} unique subdomains.")
       end
 
+      resolved_map = resolve_names_to_ips(subdomains, opts)
+      apply_scope_filter(resolved_map, scope, result)
+    end
+
+    def resolve_names_to_ips(subdomains, opts)
       log_status("  [*] Resolving #{subdomains.size} names to IPs...")
-      
-      # Resolve all names to IPs
-      resolved_map = {} # IP => [hostname1, hostname2]
+      resolved_map = {}
       
       threads = []
-      max_threads = opts[:threads] || 10
-      max_threads = 20 if max_threads > 20 # cap for DNS
+      max_threads = [(opts[:threads] || 10), 20].min
 
       queue = Queue.new
       subdomains.each { |s| queue << s }
-      
       mutex = Mutex.new
 
       max_threads.times do
@@ -181,7 +185,6 @@ module Mme
             rescue ThreadError
               break
             end
-
             begin
               ips = Resolv.getaddresses(name)
               mutex.synchronize do
@@ -199,14 +202,13 @@ module Mme
       threads.each(&:join)
 
       log_status("  [*] Names resolved to #{resolved_map.keys.size} unique IPs.")
+      resolved_map
+    end
 
-      # Check scope for each IP
+    def apply_scope_filter(resolved_map, scope, result)
       resolved_map.each do |ip, names|
         if scope.empty? || scope.include?(ip)
-          names.each do |name|
-            result.resolved_hosts << { ip: ip, hostname: name }
-          end
-          # Add the bare IP as well just in case
+          names.each { |name| result.resolved_hosts << { ip: ip, hostname: name } }
           result.resolved_hosts << { ip: ip, hostname: nil } unless result.resolved_hosts.any? { |h| h[:ip] == ip && h[:hostname].nil? }
         else
           result.excluded_hosts << ip
@@ -216,8 +218,17 @@ module Mme
 
     def enumerate_subdomains(domain, opts)
       subdomains = Set.new([domain])
+      enumerate_passive(domain, subdomains)
+      
+      unless opts[:passive_only]
+        enumerate_active_tools(domain, subdomains)
+        enumerate_dns_brute(domain, subdomains, opts)
+      end
 
-      # 1. Passive: crt.sh
+      subdomains.to_a
+    end
+
+    def enumerate_passive(domain, subdomains)
       log_status("    - Querying crt.sh (Passive)...")
       begin
         uri = URI("https://crt.sh/?q=%25.#{domain}&output=json")
@@ -233,50 +244,45 @@ module Mme
           data = JSON.parse(res.body)
           data.each do |entry|
             name = entry['name_value'].to_s.downcase
-            # Handle wildcards and multi-line names
             name.split("\n").each do |n|
-              n = n.sub(/^\*\./, '') # strip wildcard
+              n = n.sub(/^\*\./, '')
               subdomains << n if n.end_with?(domain)
             end
           end
         end
-      rescue => e
+      rescue StandardError => e
         log_warning("      [!] crt.sh query failed: #{e.message}")
       end
+    end
 
-      # 2. External Tools (amass/subfinder)
-      unless opts[:passive_only]
-        if tool_installed?('subfinder')
-          log_status("    - Running subfinder...")
-          out, stat = Open3.capture2e('subfinder', '-d', domain, '-silent')
-          if stat.success?
-            out.lines.each { |l| subdomains << l.strip.downcase }
-          end
-        elsif tool_installed?('amass')
-          log_status("    - Running amass enum...")
-          out, stat = Open3.capture2e('amass', 'enum', '-passive', '-d', domain)
-          if stat.success?
-            out.lines.each { |l| subdomains << l.strip.downcase }
-          end
+    def enumerate_active_tools(domain, subdomains)
+      if tool_installed?('subfinder')
+        log_status("    - Running subfinder...")
+        out, stat = Open3.capture2e('subfinder', '-d', domain, '-silent')
+        if stat.success?
+          out.lines.each { |l| subdomains << l.strip.downcase }
         end
-
-        # 3. Active DNS Brute (if external tools didn't run or as supplement)
-        # We skip this if passive_only is true
-        log_status("    - Brute-forcing DNS (Active)...")
-        wordlist = opts[:subdomain_wordlist] || default_subdomain_wordlist
-        if wordlist && File.exist?(wordlist)
-          File.readlines(wordlist).each do |word|
-            word = word.strip.downcase
-            next if word.empty? || word.start_with?('#')
-            # We don't resolve here, we just add to the set. Resolving happens later.
-            subdomains << "#{word}.#{domain}"
-          end
-        else
-          log_warning("      [!] No subdomain wordlist found. Skipping active brute.")
+      elsif tool_installed?('amass')
+        log_status("    - Running amass enum...")
+        out, stat = Open3.capture2e('amass', 'enum', '-passive', '-d', domain)
+        if stat.success?
+          out.lines.each { |l| subdomains << l.strip.downcase }
         end
       end
+    end
 
-      subdomains.to_a
+    def enumerate_dns_brute(domain, subdomains, opts)
+      log_status("    - Brute-forcing DNS (Active)...")
+      wordlist = opts[:subdomain_wordlist] || default_subdomain_wordlist
+      if wordlist && File.exist?(wordlist)
+        File.readlines(wordlist).each do |word|
+          word = word.strip.downcase
+          next if word.empty? || word.start_with?('#')
+          subdomains << "#{word}.#{domain}"
+        end
+      else
+        log_warning("      [!] No subdomain wordlist found. Skipping active brute.")
+      end
     end
 
     def extract_live_ips_from_xml(xml_path)
@@ -303,7 +309,7 @@ module Mme
 
     def tool_installed?(name)
       system("#{name} --version > /dev/null 2>&1") || system("#{name} --version > NUL 2>&1")
-    rescue
+    rescue StandardError
       false
     end
 
@@ -325,11 +331,11 @@ module Mme
     end
 
     def log_warning(msg)
-      @console_output ? @console_output.print_warning(msg) : $stderr.puts("[!] #{msg}")
+      @console_output ? @console_output.print_warning(msg) : warn("[!] #{msg}")
     end
 
     def log_error(msg)
-      @console_output ? @console_output.print_error(msg) : $stderr.puts("[-] #{msg}")
+      @console_output ? @console_output.print_error(msg) : warn("[-] #{msg}")
     end
   end
 end

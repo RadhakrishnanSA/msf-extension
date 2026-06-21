@@ -1,7 +1,10 @@
+# frozen_string_literal: true
+
 require 'yaml'
 require 'fileutils'
 
 module Mme
+  # Configuration manager for MME
   class Config
     DEFAULT_CONFIG = {
       'threads' => 1,
@@ -32,11 +35,11 @@ module Mme
       begin
         data = YAML.safe_load(File.read(config_file)) || {}
         @config = DEFAULT_CONFIG.merge(data)
-      rescue => e
-        $stderr.puts("[-] Failed to load MME config: #{e.message}")
+      rescue StandardError => e
+        warn("[-] Failed to load MME config: #{e.message}")
         @config = DEFAULT_CONFIG.dup
       end
-      
+
       @config
     end
 
@@ -53,7 +56,7 @@ module Mme
 
     def self.set(key, value)
       load unless @config
-      
+
       # Type conversion based on default type
       default_val = DEFAULT_CONFIG[key.to_s]
       case default_val
@@ -68,7 +71,7 @@ module Mme
       @config[key.to_s] = value
       save(@config)
     end
-    
+
     def self.all
       load unless @config
       @config.dup

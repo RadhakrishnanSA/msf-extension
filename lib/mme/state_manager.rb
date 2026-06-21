@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 require 'json'
 require 'fileutils'
 require 'securerandom'
 
 module Mme
+  # Manages the state of MME sessions.
   class StateManager
     attr_reader :session_id, :target, :start_time, :options
 
@@ -34,7 +37,7 @@ module Mme
             queue_completed: data['queue']&.count { |s| %w[completed failed skipped].include?(s['status']) } || 0,
             last_updated: File.mtime(file)
           }
-        rescue
+        rescue StandardError
           next
         end
       end
@@ -49,7 +52,7 @@ module Mme
       @target = target
       @start_time = start_time
       @options = options
-      
+
       data = {
         session_id: @session_id,
         target: target,
@@ -72,12 +75,12 @@ module Mme
 
     def load
       return nil unless File.exist?(state_file)
-      
+
       data = JSON.parse(File.read(state_file))
       @target = data['target']
       @start_time = data['start_time'] ? Time.parse(data['start_time']) : Time.now
       @options = data['options'] || {}
-      
+
       # Reconstruct the service queue
       queue = ServiceQueue.new
       (data['queue'] || []).each do |q|
@@ -92,10 +95,10 @@ module Mme
         # Directly add to entries to bypass duplication checks and state resets
         queue.entries << entry
       end
-      
+
       queue
     end
-    
+
     def delete
       File.delete(state_file) if File.exist?(state_file)
     end

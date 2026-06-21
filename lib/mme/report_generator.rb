@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'erb'
 require 'json'
 require 'fileutils'
@@ -5,6 +7,7 @@ require 'time'
 require 'open3'
 
 module Mme
+  # Generates HTML, PDF, Markdown, and JSON reports
   class ReportGenerator
     include ERB::Util
 
@@ -24,7 +27,7 @@ module Mme
       @template_dir = template_dir
     end
 
-    def generate_html(findings, evidence, metadata)
+    def generate_html(findings, _evidence, metadata)
       template_path = File.join(@template_dir, 'report.html.erb')
 
       unless File.exist?(template_path)
@@ -60,14 +63,14 @@ module Mme
       output_path
     end
 
-    def generate_markdown(findings, evidence, metadata)
+    def generate_markdown(findings, _evidence, metadata)
       template_path = File.join(@template_dir, 'report.md.erb')
-      
+
       unless File.exist?(template_path)
         log_error("Markdown template not found at #{template_path}")
         return nil
       end
-      
+
       template_content = File.read(template_path)
 
       # Sort findings by severity
@@ -155,16 +158,16 @@ module Mme
           if status.success?
             return pdf_path
           else
-            $stderr.puts("[!] wkhtmltopdf failed: #{output}")
+            warn("[!] wkhtmltopdf failed: #{output}")
           end
-        rescue => e
-          $stderr.puts("[!] PDF generation error: #{e.message}")
+        rescue StandardError => e
+          warn("[!] PDF generation error: #{e.message}")
         end
       end
 
       # Fallback message
-      $stderr.puts('[!] PDF generation requires wkhtmltopdf. Install it from https://wkhtmltopdf.org/')
-      $stderr.puts("[!] HTML report is available at: #{html_path}")
+      warn('[!] PDF generation requires wkhtmltopdf. Install it from https://wkhtmltopdf.org/')
+      warn("[!] HTML report is available at: #{html_path}")
       nil
     end
 

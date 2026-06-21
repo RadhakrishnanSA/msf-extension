@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Mme
   # Result of a complete playbook execution
   PlaybookResult = Struct.new(
@@ -6,6 +8,7 @@ module Mme
     keyword_init: true
   )
 
+  # Core engine for executing playbooks against services.
   class PlaybookEngine
     attr_reader :playbooks
 
@@ -28,7 +31,7 @@ module Mme
           pb = Playbook.load_from_file(file)
           @playbooks[pb.service.downcase] = pb
           log_status("Loaded playbook: #{pb.service} (#{pb.step_count} steps)")
-        rescue => e
+        rescue StandardError => e
           log_error("Failed to load playbook #{file}: #{e.message}")
         end
       end
@@ -64,7 +67,7 @@ module Mme
       # Map steps by index and ID for branching
       steps = playbook.steps
       step_by_id = steps.map { |s| [s.id, s] }.to_h
-      
+
       current_step_idx = 0
       executed_count = 0
 
@@ -92,7 +95,7 @@ module Mme
           log_status("  [Stealth] Delaying execution by #{delay}s...")
           sleep(delay)
         end
-        
+
         log_status("  Step [#{current_step_idx + 1}/#{playbook.step_count}]: #{step.name} (ID: #{step.id})")
 
         # Build module options
@@ -115,7 +118,7 @@ module Mme
         if result.executed
           evidence = evidence_collector.collect(result, service_entry, step)
           findings_count += 1 if evidence&.finding_id
-          
+
           # Check for high confidence exploits to prompt the operator
           if evidence && evidence.finding_id
             finding = evidence_collector.findings.find { |f| f.id == evidence.finding_id }
@@ -128,7 +131,7 @@ module Mme
           current_step_idx = determine_next_step_idx(step.on_success, steps, step_by_id, current_step_idx + 1)
         else
           log_warning("  Step failed: #{step.name} - #{result.error}")
-          
+
           # WAF/Rate limit detection
           if result.output && result.output.match?(/403 Forbidden|406 Not Acceptable|429 Too Many Requests/i)
             log_warning("  [!] Potential WAF/Rate-limiting detected on #{service_entry.host}. Auto-downgrading to stealth profile.")
@@ -169,10 +172,10 @@ module Mme
     def run_module_with_retries(step, options, service_entry)
       max_retries = 2
       retry_count = 0
-      
+
       begin
         return @module_runner.run(step.module_path, options)
-      rescue => e
+      rescue StandardError => e
         is_transient = e.class.name.include?('Timeout') || e.class.name.include?('ECONNRESET')
         if is_transient && retry_count < max_retries
           retry_count += 1
@@ -191,7 +194,7 @@ module Mme
       return if high_conf_exploits.empty?
 
       exploit = high_conf_exploits.first
-      
+
       if opts[:auto_confirm] && opts[:auth_confirmed]
         log_warning("  [!] AUTO-CONFIRM EXECUTING: #{exploit[:fullname]}")
         run_exploit(exploit, finding, service_entry, evidence_collector, opts, engine)
@@ -205,12 +208,12 @@ module Mme
         $stdout.puts("\n\e[31m[!] CONFIRMED MATCH: #{finding.title}\e[0m")
         $stdout.puts("    \e[33m#{exploit[:fullname]} (rank: #{exploit[:rank]}, confidence: #{exploit[:confidence]})\e[0m")
         $stdout.print("    Run this exploit now? [y/N]: ")
-        
+
         # Read from raw stdin to avoid MSF readline buffering issues if possible
         begin
           require 'timeout'
           response = Timeout.timeout(60) { $stdin.gets.to_s.strip.downcase }
-          
+
           if response == 'y' || response == 'yes'
             run_exploit(exploit, finding, service_entry, evidence_collector, opts, engine)
           else
@@ -226,12 +229,12 @@ module Mme
 
     def run_exploit(exploit, finding, service_entry, evidence_collector, opts, engine)
       log_status("  [*] Executing exploit: #{exploit[:fullname]}")
-      
+
       options = {
         'RHOSTS' => service_entry.host,
         'RPORT'  => service_entry.port.to_s
       }
-      
+
       # SSL Check
       if service_entry.name.to_s.downcase.include?('https') || service_entry.port.to_i == 443
         options['SSL'] = 'true'
@@ -241,7 +244,7 @@ module Mme
       sessions_before = @framework.sessions.keys
 
       result = @module_runner.run(exploit[:fullname], options)
-      
+
       # Collect evidence
       if result.executed
         # Manually create exploit evidence since we aren't using a playbook step here
@@ -268,9 +271,9 @@ module Mme
       if new_sessions.any?
         session_id = new_sessions.first
         session = @framework.sessions[session_id]
-        
+
         log_good("  [+] Exploit successful! Gained session #{session_id} (#{session.info})")
-        
+
         if engine
           engine.mutex.synchronize do
             engine.gained_sessions << {
@@ -284,7 +287,7 @@ module Mme
         end
 
         finding.status = 'exploited'
-        
+
         # Post-exploitation privesc suggestion
         handle_post_exploitation(session_id, session, service_entry, evidence_collector, opts, engine)
       else
@@ -293,12 +296,12 @@ module Mme
       end
     end
 
-    def handle_post_exploitation(session_id, session, service_entry, evidence_collector, opts, engine)
+    def handle_post_exploitation(session_id, _session, service_entry, evidence_collector, opts, engine)
       log_status("  [*] Running local_exploit_suggester against session #{session_id}...")
-      
+
       options = { 'SESSION' => session_id.to_s }
       result = @module_runner.run('post/multi/recon/local_exploit_suggester', options)
-      
+
       return unless result.executed && result.output
 
       # Parse suggester output to find viable privesc modules
@@ -313,7 +316,7 @@ module Mme
 
       if suggestions.any?
         privesc_module = suggestions.first # Propose the first one for simplicity
-        
+
         # Check auto confirm
         if opts[:auto_confirm] && opts[:auth_confirmed]
           log_warning("  [!] AUTO-CONFIRM EXECUTING PRIVESC: #{privesc_module}")
@@ -326,7 +329,7 @@ module Mme
           $stdout.puts("\n\e[31m[!] PRIVESC SUGGESTION: local_exploit_suggester identified paths\e[0m")
           $stdout.puts("    \e[33m#{privesc_module}\e[0m")
           $stdout.print("    Run this privesc exploit against session #{session_id} now? [y/N]: ")
-          
+
           begin
             require 'timeout'
             response = Timeout.timeout(60) { $stdin.gets.to_s.strip.downcase }
@@ -342,7 +345,7 @@ module Mme
       else
         log_status("  [*] No immediate privesc vectors identified by suggester.")
       end
-      
+
       # Print lateral movement advice
       log_status("  [*] NOTE: Session has been established. If the target has multiple interfaces,")
       log_status("      consider `route add` and running a new mme_scan against the internal range.")
@@ -350,12 +353,12 @@ module Mme
 
     def run_privesc(module_path, session_id, service_entry, evidence_collector)
       log_status("  [*] Executing privesc: #{module_path}")
-      
+
       options = { 'SESSION' => session_id.to_s }
       sessions_before = @framework.sessions.keys
-      
+
       result = @module_runner.run(module_path, options)
-      
+
       sessions_after = @framework.sessions.keys
       new_sessions = sessions_after - sessions_before
 
@@ -363,7 +366,7 @@ module Mme
         new_sess_id = new_sessions.first
         new_sess = @framework.sessions[new_sess_id]
         log_good("  [+] Privesc successful! Gained new session #{new_sess_id} (#{new_sess.info})")
-        
+
         # Log privesc finding
         finding = Finding.new(
           title: "Successful Privilege Escalation via #{module_path}",
@@ -376,9 +379,9 @@ module Mme
           module_path: module_path,
           status: 'exploited'
         )
-        
+
         evidence_collector.findings_store << finding
-        
+
         # We don't recurse here indefinitely. Stop at privesc.
       else
         log_warning("  [-] Privesc failed or did not yield a new session.")
@@ -387,7 +390,7 @@ module Mme
 
     def determine_next_step_idx(target_id, steps, step_by_id, default_next_idx)
       return default_next_idx if target_id.nil? || target_id.empty?
-      
+
       # Find the index of the target step ID
       target_step = step_by_id[target_id]
       if target_step
@@ -405,7 +408,7 @@ module Mme
         parts = condition_str.split(' ', 3)
         if parts.size == 3 && parts[1] == '=~'
           step_id = parts[0]
-          
+
           # Extract regex pattern and ignore_case flag (e.g., /ubuntu/i -> ubuntu, i)
           regex_str = parts[2]
           ignore_case = false
@@ -417,7 +420,7 @@ module Mme
               regex_str = regex_str[1...last_slash]
             end
           end
-          
+
           regex = Regexp.new(regex_str, ignore_case ? Regexp::IGNORECASE : 0)
 
           if step_id.downcase == 'any'
@@ -434,7 +437,7 @@ module Mme
             end
           end
         end
-      rescue => e
+      rescue StandardError => e
         log_warning("Failed to evaluate condition '#{condition_str}': #{e.message}")
       end
       true # Default to run if parsing fails
@@ -473,7 +476,7 @@ module Mme
         '/usr/share/wordlists/seclists'
       ]
       base_path = seclists_paths.find { |p| File.directory?(p) }
-      
+
       # 1. Passwords (Default to rockyou if available)
       rockyou = '/usr/share/wordlists/rockyou.txt'
       if File.exist?(rockyou)

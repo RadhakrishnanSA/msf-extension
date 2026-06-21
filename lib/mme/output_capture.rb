@@ -1,4 +1,8 @@
+# frozen_string_literal: true
+
+# MME namespace
 module Mme
+  # Output capture utility
   class OutputCapture
     attr_reader :buffer, :lines
 
