@@ -27,13 +27,11 @@ module Mme
       end
 
       Dir.glob(File.join(directory, '*.yml')).each do |file|
-        begin
-          pb = Playbook.load_from_file(file)
-          @playbooks[pb.service.downcase] = pb
-          log_status("Loaded playbook: #{pb.service} (#{pb.step_count} steps)")
-        rescue StandardError => e
-          log_error("Failed to load playbook #{file}: #{e.message}")
-        end
+        pb = Playbook.load_from_file(file)
+        @playbooks[pb.service.downcase] = pb
+        log_status("Loaded playbook: #{pb.service} (#{pb.step_count} steps)")
+      rescue StandardError => e
+        log_error("Failed to load playbook #{file}: #{e.message}")
       end
 
       log_good("Loaded #{@playbooks.size} playbooks")
@@ -59,14 +57,12 @@ module Mme
       dry_run = opts[:dry_run] || false
 
       log_status("Executing playbook: #{playbook.service} against #{service_entry}")
-      if dry_run
-        log_status("  [!] DRY-RUN MODE: Modules will NOT be executed")
-      end
+      log_status('  [!] DRY-RUN MODE: Modules will NOT be executed') if dry_run
       log_status("Steps to execute: #{playbook.step_count}")
 
       # Map steps by index and ID for branching
       steps = playbook.steps
-      step_by_id = steps.map { |s| [s.id, s] }.to_h
+      step_by_id = steps.to_h { |s| [s.id, s] }
 
       current_step_idx = 0
       executed_count = 0
@@ -82,12 +78,10 @@ module Mme
         end
 
         # Check conditions
-        if step.condition
-          unless evaluate_condition(step.condition, step_results, evidence_collector)
-            log_status("  [-] Condition not met for step: #{step.name}. Skipping.")
-            current_step_idx = determine_next_step_idx(step.on_failure, steps, step_by_id, current_step_idx + 1)
-            next
-          end
+        if step.condition && !evaluate_condition(step.condition, step_results, evidence_collector)
+          log_status("  [-] Condition not met for step: #{step.name}. Skipping.")
+          current_step_idx = determine_next_step_idx(step.on_failure, steps, step_by_id, current_step_idx + 1)
+          next
         end
 
         if profile == :stealth && executed_count > 1
@@ -104,7 +98,8 @@ module Mme
         if dry_run
           log_status("  [Dry-Run] Would execute: #{step.module_path}")
           options.each { |k, v| log_status("    #{k} => #{v}") }
-          result = ModuleResult.new(module_path: step.module_path, output: "Dry-run output", executed: false, timestamp: Time.now, error: nil, duration: 0, status: 'skipped')
+          result = ModuleResult.new(module_path: step.module_path, output: 'Dry-run output', executed: false, timestamp: Time.now,
+                                    error: nil, duration: 0, status: 'skipped')
           step_results << result
           current_step_idx += 1
           next
@@ -120,9 +115,9 @@ module Mme
           findings_count += 1 if evidence&.finding_id
 
           # Check for high confidence exploits to prompt the operator
-          if evidence && evidence.finding_id
+          if evidence&.finding_id
             finding = evidence_collector.findings.find { |f| f.id == evidence.finding_id }
-            if finding && finding.exploits && finding.exploits.any? { |e| e[:confidence] == 'High Confidence' }
+            if finding&.exploits&.any? { |e| e[:confidence] == 'High Confidence' }
               handle_exploit_gate(finding, service_entry, evidence_collector, opts, engine)
             end
           end
@@ -133,7 +128,7 @@ module Mme
           log_warning("  Step failed: #{step.name} - #{result.error}")
 
           # WAF/Rate limit detection
-          if result.output && result.output.match?(/403 Forbidden|406 Not Acceptable|429 Too Many Requests/i)
+          if result.output&.match?(/403 Forbidden|406 Not Acceptable|429 Too Many Requests/i)
             log_warning("  [!] Potential WAF/Rate-limiting detected on #{service_entry.host}. Auto-downgrading to stealth profile.")
             profile = :stealth
           end
@@ -169,17 +164,17 @@ module Mme
 
     private
 
-    def run_module_with_retries(step, options, service_entry)
+    def run_module_with_retries(step, options, _service_entry)
       max_retries = 2
       retry_count = 0
 
       begin
-        return @module_runner.run(step.module_path, options)
+        @module_runner.run(step.module_path, options)
       rescue StandardError => e
         is_transient = e.class.name.include?('Timeout') || e.class.name.include?('ECONNRESET')
         if is_transient && retry_count < max_retries
           retry_count += 1
-          backoff = 2 ** retry_count
+          backoff = 2**retry_count
           log_warning("  [!] Transient error (#{e.class.name}) executing #{step.module_path}. Retrying in #{backoff}s...")
           sleep(backoff)
           retry
@@ -207,18 +202,18 @@ module Mme
       ui_mutex.synchronize do
         $stdout.puts("\n\e[31m[!] CONFIRMED MATCH: #{finding.title}\e[0m")
         $stdout.puts("    \e[33m#{exploit[:fullname]} (rank: #{exploit[:rank]}, confidence: #{exploit[:confidence]})\e[0m")
-        $stdout.print("    Run this exploit now? [y/N]: ")
+        $stdout.print('    Run this exploit now? [y/N]: ')
 
         # Read from raw stdin to avoid MSF readline buffering issues if possible
         begin
           require 'timeout'
           response = Timeout.timeout(60) { $stdin.gets.to_s.strip.downcase }
 
-          if response == 'y' || response == 'yes'
+          if %w[y yes].include?(response)
             run_exploit(exploit, finding, service_entry, evidence_collector, opts, engine)
           else
             finding.status = 'suggested_not_run'
-            $stdout.puts("    [-] Exploit skipped. Marked as suggested_not_run.")
+            $stdout.puts('    [-] Exploit skipped. Marked as suggested_not_run.')
           end
         rescue Timeout::Error
           finding.status = 'suggested_not_run'
@@ -232,13 +227,11 @@ module Mme
 
       options = {
         'RHOSTS' => service_entry.host,
-        'RPORT'  => service_entry.port.to_s
+        'RPORT' => service_entry.port.to_s
       }
 
       # SSL Check
-      if service_entry.name.to_s.downcase.include?('https') || service_entry.port.to_i == 443
-        options['SSL'] = 'true'
-      end
+      options['SSL'] = 'true' if service_entry.name.to_s.downcase.include?('https') || service_entry.port.to_i == 443
 
       # Track active sessions before
       sessions_before = @framework.sessions.keys
@@ -255,7 +248,7 @@ module Mme
           service: service_entry.name,
           module_path: exploit[:fullname],
           evidence_type: 'exploit_attempt',
-          content: "Exploit execution output",
+          content: 'Exploit execution output',
           raw_output: result.output,
           timestamp: Time.now,
           finding_id: finding.id,
@@ -274,16 +267,14 @@ module Mme
 
         log_good("  [+] Exploit successful! Gained session #{session_id} (#{session.info})")
 
-        if engine
-          engine.mutex.synchronize do
-            engine.gained_sessions << {
-              session_id: session_id,
-              host: service_entry.host,
-              port: service_entry.port,
-              module: exploit[:fullname],
-              info: session.info
-            }
-          end
+        engine&.mutex&.synchronize do
+          engine.gained_sessions << {
+            session_id: session_id,
+            host: service_entry.host,
+            port: service_entry.port,
+            module: exploit[:fullname],
+            info: session.info
+          }
         end
 
         finding.status = 'exploited'
@@ -291,7 +282,7 @@ module Mme
         # Post-exploitation privesc suggestion
         handle_post_exploitation(session_id, session, service_entry, evidence_collector, opts, engine)
       else
-        log_warning("  [-] Exploit failed or did not yield a session.")
+        log_warning('  [-] Exploit failed or did not yield a session.')
         finding.status = 'exploit_failed'
       end
     end
@@ -309,7 +300,7 @@ module Mme
       result.output.lines.each do |line|
         # MSF suggester output typically looks like:
         # [+] 10.0.0.5 - exploit/linux/local/bpf_sign_extension: The target appears to be vulnerable.
-        if (m = line.match(/\[\+\]\s+.*?\s+-\s+(exploit\/.*?):\s+(.*?vulnerable.*)/i))
+        if (m = line.match(%r{\[\+\]\s+.*?\s+-\s+(exploit/.*?):\s+(.*?vulnerable.*)}i))
           suggestions << m[1].strip
         end
       end
@@ -333,22 +324,22 @@ module Mme
           begin
             require 'timeout'
             response = Timeout.timeout(60) { $stdin.gets.to_s.strip.downcase }
-            if response == 'y' || response == 'yes'
+            if %w[y yes].include?(response)
               run_privesc(privesc_module, session_id, service_entry, evidence_collector)
             else
-              $stdout.puts("    [-] Privesc skipped.")
+              $stdout.puts('    [-] Privesc skipped.')
             end
           rescue Timeout::Error
             $stdout.puts("\n    [-] Privesc prompt timed out. Skipped.")
           end
         end
       else
-        log_status("  [*] No immediate privesc vectors identified by suggester.")
+        log_status('  [*] No immediate privesc vectors identified by suggester.')
       end
 
       # Print lateral movement advice
-      log_status("  [*] NOTE: Session has been established. If the target has multiple interfaces,")
-      log_status("      consider `route add` and running a new mme_scan against the internal range.")
+      log_status('  [*] NOTE: Session has been established. If the target has multiple interfaces,')
+      log_status('      consider `route add` and running a new mme_scan against the internal range.')
     end
 
     def run_privesc(module_path, session_id, service_entry, evidence_collector)
@@ -384,7 +375,7 @@ module Mme
 
         # We don't recurse here indefinitely. Stop at privesc.
       else
-        log_warning("  [-] Privesc failed or did not yield a new session.")
+        log_warning('  [-] Privesc failed or did not yield a new session.')
       end
     end
 
@@ -414,8 +405,8 @@ module Mme
           ignore_case = false
           if regex_str.start_with?('/')
             last_slash = regex_str.rindex('/')
-            if last_slash && last_slash > 0
-              flags = regex_str[(last_slash + 1)..-1]
+            if last_slash&.positive?
+              flags = regex_str[(last_slash + 1)..]
               ignore_case = flags.include?('i')
               regex_str = regex_str[1...last_slash]
             end
@@ -429,12 +420,12 @@ module Mme
           else
             # Find evidence specifically for this step ID
             evidence = evidence_collector.evidence_list.find { |e| e.step_id == step_id }
-            if evidence
-              return !!evidence.raw_output.to_s.match(regex)
-            else
-              log_warning("  [!] Condition step_id '#{step_id}' has no evidence to evaluate.")
-              return false
-            end
+            return !!evidence.raw_output.to_s.match(regex) if evidence
+
+
+            log_warning("  [!] Condition step_id '#{step_id}' has no evidence to evaluate.")
+            return false
+
           end
         end
       rescue StandardError => e
@@ -447,19 +438,15 @@ module Mme
     def build_options(step, service_entry)
       opts = {
         'RHOSTS' => service_entry.host,
-        'RPORT'  => service_entry.port.to_s,
+        'RPORT' => service_entry.port.to_s,
         'THREADS' => '1'
       }
 
       # Add SSL for HTTPS
-      if service_entry.name.to_s.downcase.include?('https') || service_entry.port.to_i == 443
-        opts['SSL'] = 'true'
-      end
+      opts['SSL'] = 'true' if service_entry.name.to_s.downcase.include?('https') || service_entry.port.to_i == 443
 
       # Smart Wordlist Injection for Login Modules
-      if step.module_path.include?('login') || step.module_path.include?('brute')
-        inject_smart_wordlists(opts, service_entry.name.to_s.downcase)
-      end
+      inject_smart_wordlists(opts, service_entry.name.to_s.downcase) if step.module_path.include?('login') || step.module_path.include?('brute')
 
       # Merge step-specific options (from YAML)
       step.options.each do |key, value|
@@ -479,12 +466,12 @@ module Mme
 
       # 1. Passwords (Default to rockyou if available)
       rockyou = '/usr/share/wordlists/rockyou.txt'
-      if File.exist?(rockyou)
-        opts['PASS_FILE'] = rockyou
-      else
-        # Fallback to MSF default
-        opts['PASS_FILE'] = ::Msf::Config.install_root + '/data/wordlists/unix_passwords.txt'
-      end
+      opts['PASS_FILE'] = if File.exist?(rockyou)
+                            rockyou
+                          else
+                            # Fallback to MSF default
+                            "#{::Msf::Config.install_root}/data/wordlists/unix_passwords.txt"
+                          end
 
       # 2. Usernames (Service specific if seclists exists)
       if base_path
@@ -497,32 +484,32 @@ module Mme
         end
       else
         # Fallback to MSF default
-        opts['USER_FILE'] = ::Msf::Config.install_root + '/data/wordlists/unix_users.txt'
+        opts['USER_FILE'] = "#{::Msf::Config.install_root}/data/wordlists/unix_users.txt"
       end
     end
 
     def log_status(msg)
-      if @console_output
-        @console_output.print_status(msg)
-      end
+      return unless @console_output
+
+      @console_output.print_status(msg)
     end
 
     def log_good(msg)
-      if @console_output
-        @console_output.print_good(msg)
-      end
+      return unless @console_output
+
+      @console_output.print_good(msg)
     end
 
     def log_error(msg)
-      if @console_output
-        @console_output.print_error(msg)
-      end
+      return unless @console_output
+
+      @console_output.print_error(msg)
     end
 
     def log_warning(msg)
-      if @console_output
-        @console_output.print_warning(msg) if @console_output.respond_to?(:print_warning)
-      end
+      return unless @console_output
+
+      @console_output.print_warning(msg) if @console_output.respond_to?(:print_warning)
     end
   end
 end

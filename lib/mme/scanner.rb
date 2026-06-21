@@ -44,7 +44,7 @@ module Mme
       # Validate target input to prevent basic command injection (defense in depth)
       # Since we are using an input file (-iL), the injection risk on the command line is mitigated,
       # but we still want to ensure the IPs themselves are clean.
-      invalid_targets = targets.reject { |t| t.match?(%r{^[a-zA-Z0-9.\-_/,:]+$}) }
+      invalid_targets = targets.grep_v(%r{^[a-zA-Z0-9.\-_/,:]+$})
       if invalid_targets.any?
         log_error("Invalid characters in target list. First offending target: #{invalid_targets.first}")
         return []
@@ -140,9 +140,7 @@ module Mme
         next unless svc.state == 'open'
 
         # Filter by targets if provided
-        if range_walker && !range_walker.include?(svc.host.address)
-          next
-        end
+        next if range_walker && !range_walker.include?(svc.host.address)
 
         entry = ServiceEntry.new(
           host: svc.host.address,

@@ -23,22 +23,22 @@ module Mme
 
     def commands
       {
-        'mme_scan'      => 'Run Nmap scan and execute methodology against target',
-        'mme_ui'        => 'Launch the interactive MME configuration wizard',
-        'mme_import'    => 'Import scan results and execute methodology',
-        'mme_status'    => 'Show current MME engine status',
-        'mme_report'    => 'Generate report (html/json)',
+        'mme_scan' => 'Run Nmap scan and execute methodology against target',
+        'mme_ui' => 'Launch the interactive MME configuration wizard',
+        'mme_import' => 'Import scan results and execute methodology',
+        'mme_status' => 'Show current MME engine status',
+        'mme_report' => 'Generate report (html/json)',
         'mme_playbooks' => 'List available service playbooks',
-        'mme_findings'  => 'Display collected findings',
-        'mme_stop'      => 'Stop the current MME engine run',
-        'mme_checkpoints'=> 'List resumable MME state sessions',
-        'mme_sessions'  => 'List actual MSF sessions gained via MME',
-        'mme_resume'    => 'Resume a paused MME session',
-        'mme_config'    => 'Get or set MME configuration values',
-        'mme_scope'     => 'Manage the target scope list',
-        'mme_doctor'    => 'Run environment health checks',
-        'mme_export'    => 'Export findings to external platform (defectdojo)',
-        'mme_help'      => 'Show MME help and usage information'
+        'mme_findings' => 'Display collected findings',
+        'mme_stop' => 'Stop the current MME engine run',
+        'mme_checkpoints' => 'List resumable MME state sessions',
+        'mme_sessions' => 'List actual MSF sessions gained via MME',
+        'mme_resume' => 'Resume a paused MME session',
+        'mme_config' => 'Get or set MME configuration values',
+        'mme_scope' => 'Manage the target scope list',
+        'mme_doctor' => 'Run environment health checks',
+        'mme_export' => 'Export findings to external platform (defectdojo)',
+        'mme_help' => 'Show MME help and usage information'
       }
     end
 
@@ -67,7 +67,9 @@ module Mme
         o.on('--webhook URL', String, 'POST summary to webhook URL on completion') { |v| opts[:webhook] = v }
         o.on('--show-creds', 'Show full credentials in reports (default: redacted)') { opts[:show_creds] = true }
         o.on('--dry-run', 'Simulation mode. Map methodology without executing modules.') { opts[:dry_run] = true }
-        o.on('--auto-confirm-exploits', 'Unattended mode: auto-run exploits (requires --i-have-authorization)') { opts[:auto_confirm] = true }
+        o.on('--auto-confirm-exploits', 'Unattended mode: auto-run exploits (requires --i-have-authorization)') do
+          opts[:auto_confirm] = true
+        end
         o.on('--i-have-authorization', 'Safety confirmation for unattended exploit runs') { opts[:auth_confirmed] = true }
         o.on('--no-pingsweep', 'Skip Phase 0 ping sweep and queue range targets directly') { opts[:no_pingsweep] = true }
         o.on('--no-subdomain-enum', 'Skip Phase 0 subdomain enumeration for domain targets') { opts[:no_subdomain_enum] = true }
@@ -75,8 +77,7 @@ module Mme
         o.on('--subdomain-wordlist PATH', String, 'Custom wordlist for DNS brute-forcing') { |v| opts[:subdomain_wordlist] = v }
         o.on('-p PORTS', String, 'Ports to scan') { |v| opts[:nmap_opts] = "-p #{v}" }
         o.on('-h', '--help', 'Show this help') do
-          print_line(o.to_s)
-          return
+          opts[:help] = o.to_s
         end
       end
 
@@ -89,6 +90,11 @@ module Mme
         remaining = e.args + args
       rescue OptionParser::MissingArgument => e
         print_error(e.message)
+        return
+      end
+
+      if opts[:help]
+        print_line(opts[:help])
         return
       end
 
@@ -171,12 +177,12 @@ module Mme
       # Stealth
       print('Enable Stealth Mode? (Slower Nmap, Adds Delays) [y/N]: ')
       stealth_in = gets.to_s.strip.downcase
-      profile = (stealth_in == 'y' || stealth_in == 'yes') ? :stealth : :normal
+      profile = %w[y yes].include?(stealth_in) ? :stealth : :normal
 
       # Brute-force
       print('Enable Brute-Forcing / Login Attempts? (Slower, noisy) [y/N]: ')
       brute_in = gets.to_s.strip.downcase
-      brute = (brute_in == 'y' || brute_in == 'yes') ? true : false
+      brute = %w[y yes].include?(brute_in)
 
       print_status('')
       print_status('Building configuration...')
@@ -188,7 +194,7 @@ module Mme
         nmap_opts: nil
       }
 
-      print_status("Launching: mme_scan #{target} --threads #{threads} --profile #{profile} #{brute ? '--brute' : ''}")
+      print_status("Launching: mme_scan #{target} --threads #{threads} --profile #{profile} #{'--brute' if brute}")
       print_status('=' * 50)
 
       engine_inst = engine
@@ -254,14 +260,10 @@ module Mme
         print_status('Findings:')
         print_status("  Total Evidence: #{s[:total_evidence]}")
         print_status("  Total Findings: #{s[:total_findings]}")
-        if s[:by_severity]&.any?
-          s[:by_severity].each { |sev, count| print_status("  #{sev.capitalize}: #{count}") }
-        end
+        s[:by_severity].each { |sev, count| print_status("  #{sev.capitalize}: #{count}") } if s[:by_severity]&.any?
       end
 
-      if status[:error]
-        print_error("Error: #{status[:error]}")
-      end
+      print_error("Error: #{status[:error]}") if status[:error]
       print_status('=' * 40)
     end
 
@@ -290,9 +292,9 @@ module Mme
       if args.include?('--gaps')
         gaps = engine_inst.unmatched_services || []
         if gaps.empty?
-          print_status("No coverage gaps detected from the last run.")
+          print_status('No coverage gaps detected from the last run.')
         else
-          print_warning("Services without matching playbooks:")
+          print_warning('Services without matching playbooks:')
           gaps.each do |svc|
             print_status("  - #{svc.host}:#{svc.port} (#{svc.name})")
           end
@@ -312,9 +314,9 @@ module Mme
       print_status('=' * 60)
 
       tbl = Rex::Text::Table.new(
-        'Header'  => 'Service Playbooks',
-        'Indent'  => 2,
-        'Columns' => ['Service', 'Ports', 'Steps', 'Description']
+        'Header' => 'Service Playbooks',
+        'Indent' => 2,
+        'Columns' => %w[Service Ports Steps Description]
       )
 
       playbooks.each do |pb|
@@ -412,8 +414,8 @@ module Mme
       print_status('=' * 80)
 
       tbl = Rex::Text::Table.new(
-        'Header'  => 'Checkpoints',
-        'Indent'  => 2,
+        'Header' => 'Checkpoints',
+        'Indent' => 2,
         'Columns' => ['Session ID', 'Target', 'Progress', 'Last Updated']
       )
 
@@ -423,7 +425,7 @@ module Mme
       end
 
       print_line(tbl.to_s)
-      print_status("Use `mme_resume <session_id>` to continue a session.")
+      print_status('Use `mme_resume <session_id>` to continue a session.')
     end
 
     def cmd_mme_sessions(*_args)
@@ -431,7 +433,7 @@ module Mme
       sessions = engine_inst.gained_sessions || []
 
       if sessions.empty?
-        print_status("No MSF sessions gained via MME yet.")
+        print_status('No MSF sessions gained via MME yet.')
         return
       end
 
@@ -534,7 +536,11 @@ module Mme
       checks_failed = 0
 
       # 1. Nmap installed
-      nmap_ok = system('nmap --version > /dev/null 2>&1') || system('nmap --version > NUL 2>&1') rescue false
+      nmap_ok = begin
+        system('nmap --version > /dev/null 2>&1') || system('nmap --version > NUL 2>&1')
+      rescue StandardError
+        false
+      end
       if nmap_ok
         print_good('[✓] Nmap is installed and on PATH')
         checks_passed += 1
@@ -563,17 +569,15 @@ module Mme
       end
 
       # 4. Playbook directory readable and all playbooks valid
-      engine_inst = engine
+      engine
       pb_dir = File.join(mme_dir, 'playbooks')
       if File.directory?(pb_dir) && File.readable?(pb_dir)
         pb_files = Dir.glob(File.join(pb_dir, '*.yml'))
         pb_errors = []
         pb_files.each do |f|
-          begin
-            Mme::Playbook.load_from_file(f)
-          rescue StandardError => e
-            pb_errors << "  #{File.basename(f)}: #{e.message}"
-          end
+          Mme::Playbook.load_from_file(f)
+        rescue StandardError => e
+          pb_errors << "  #{File.basename(f)}: #{e.message}"
         end
         if pb_errors.empty?
           print_good("[✓] #{pb_files.size} playbooks loaded successfully")
@@ -716,16 +720,16 @@ module Mme
           request['Authorization'] = "Token #{token}"
           request['Content-Type'] = 'application/json'
           request.body = JSON.generate({
-            title: f.title,
-            severity: severity_map[f.severity] || 'Info',
-            description: f.description,
-            impact: f.impact,
-            mitigation: f.remediation,
-            endpoints: ["#{f.host}:#{f.port}"],
-            active: true,
-            verified: f.status == 'confirmed',
-            numerical_severity: Mme::Finding::SEVERITIES.index(f.severity) || 4
-          })
+                                         title: f.title,
+                                         severity: severity_map[f.severity] || 'Info',
+                                         description: f.description,
+                                         impact: f.impact,
+                                         mitigation: f.remediation,
+                                         endpoints: ["#{f.host}:#{f.port}"],
+                                         active: true,
+                                         verified: f.status == 'confirmed',
+                                         numerical_severity: Mme::Finding::SEVERITIES.index(f.severity) || 4
+                                       })
 
           response = http.request(request)
           if response.code.to_i < 300

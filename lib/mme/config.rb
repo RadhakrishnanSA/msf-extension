@@ -28,9 +28,7 @@ module Mme
     end
 
     def self.load
-      unless File.exist?(config_file)
-        save(DEFAULT_CONFIG.dup)
-      end
+      save(DEFAULT_CONFIG.dup) unless File.exist?(config_file)
 
       begin
         data = YAML.safe_load(File.read(config_file)) || {}
@@ -63,7 +61,7 @@ module Mme
       when Integer
         value = value.to_i
       when TrueClass, FalseClass
-        value = (value.to_s.downcase == 'true' || value.to_s.downcase == 'yes' || value == '1' || value.to_s.downcase == 'y')
+        value = %w[true yes].include?(value.to_s.downcase) || value == '1' || value.to_s.downcase == 'y'
       when Array
         value = value.split(',').map(&:strip) if value.is_a?(String)
       end

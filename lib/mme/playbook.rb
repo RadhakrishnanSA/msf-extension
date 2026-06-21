@@ -3,6 +3,7 @@
 require 'yaml'
 
 module Mme
+  # Represents a single step in a methodology playbook
   class PlaybookStep
     attr_accessor :id, :name, :module_path, :options, :always_run, :evidence_config,
                   :condition, :on_success, :on_failure
@@ -24,6 +25,7 @@ module Mme
     end
   end
 
+  # Represents a methodology playbook that defines a series of steps
   class Playbook
     attr_accessor :service, :ports, :description, :author, :version, :steps, :file_path
 
@@ -45,9 +47,8 @@ module Mme
     def self.load_from_file(path)
       data = YAML.safe_load(File.read(path), permitted_classes: [Symbol])
       errors = validate_data!(data, path)
-      unless errors.empty?
-        raise "Playbook validation failed:\n  #{errors.join("\n  ")}"
-      end
+      raise "Playbook validation failed:\n  #{errors.join("\n  ")}" unless errors.empty?
+
       pb = new(data)
       pb.file_path = path
       pb
@@ -89,16 +90,12 @@ module Mme
       errors << "#{prefix}: missing 'name'" unless step['name'].is_a?(String) && !step['name'].empty?
       errors << "#{prefix}: missing 'module'" unless step['module'].is_a?(String) && !step['module'].empty?
 
-      if step['condition']
-        unless step['condition'].is_a?(String) && step['condition'].match?(/\A\S+\s+=~\s+\/.+\/i?\z/)
-          errors << "#{prefix}: 'condition' must be in format 'step_id =~ /regex/' or 'any =~ /regex/i'"
-        end
+      if step['condition'] && !(step['condition'].is_a?(String) && step['condition'].match?(%r{\A\S+\s+=~\s+/.+/i?\z}))
+        errors << "#{prefix}: 'condition' must be in format 'step_id =~ /regex/' or 'any =~ /regex/i'"
       end
 
       %w[on_success on_failure].each do |field|
-        if step[field] && !(step[field].is_a?(String) && !step[field].empty?)
-          errors << "#{prefix}: '#{field}' must be a non-empty string (step ID)"
-        end
+        errors << "#{prefix}: '#{field}' must be a non-empty string (step ID)" if step[field] && !(step[field].is_a?(String) && !step[field].empty?)
       end
 
       errors << "#{prefix}: 'options' must be a Hash" if step['options'] && !step['options'].is_a?(Hash)
@@ -108,6 +105,7 @@ module Mme
     def matches_service?(service_name, port = nil)
       return true if service.to_s.downcase == service_name.to_s.downcase
       return true if port && ports.include?(port.to_i)
+
       # Handle service name aliases
       aliases = {
         'http' => %w[http http-alt http-proxy www],

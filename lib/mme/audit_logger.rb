@@ -13,7 +13,7 @@ module Mme
 
     def initialize
       log_dir = File.join(Dir.home, '.msf4', 'mme', 'logs')
-      FileUtils.mkdir_p(log_dir) unless Dir.exist?(log_dir)
+      FileUtils.mkdir_p(log_dir)
 
       log_file = File.join(log_dir, 'mme_audit.log')
       @logger = Logger.new(log_file, 'daily')
@@ -23,7 +23,7 @@ module Mme
     end
 
     def log(level, message, metadata = {})
-      meta_str = metadata.empty? ? "" : " | #{metadata.map { |k, v| "#{k}=#{v}" }.join(' ')}"
+      meta_str = metadata.empty? ? '' : " | #{metadata.map { |k, v| "#{k}=#{v}" }.join(' ')}"
       @logger.send(level, "#{message}#{meta_str}")
     end
 

@@ -55,8 +55,8 @@ module Mme
         Timeout.timeout(timeout) do
           mod.run_simple(
             'LocalOutput' => output_capture,
-            'RunAsJob'    => false,
-            'Quiet'       => false
+            'RunAsJob' => false,
+            'Quiet' => false
           )
         end
       rescue ::Interrupt
@@ -73,7 +73,7 @@ module Mme
           duration: duration,
           status: 'timed_out'
         )
-      rescue ::Exception => e
+      rescue StandardError => e
         duration = Time.now - start_time
         log_error("Module #{module_path} error: #{e.message}")
         return ModuleResult.new(

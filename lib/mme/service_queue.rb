@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'thread'
 
 # MME namespace
 module Mme
@@ -26,7 +25,7 @@ module Mme
       1433 => 'mssql', 1521 => 'oracle', 3306 => 'mysql',
       3389 => 'rdp', 5432 => 'postgresql', 5900 => 'vnc',
       6379 => 'redis', 8080 => 'http', 8443 => 'https',
-      27017 => 'mongodb', 161 => 'snmp', 162 => 'snmp'
+      27_017 => 'mongodb', 161 => 'snmp', 162 => 'snmp'
     }.freeze
 
     attr_reader :entries
@@ -40,9 +39,7 @@ module Mme
       @mutex.synchronize do
         service_entry.status = :pending
         # Normalize service name from port if missing
-        if service_entry.name.nil? || service_entry.name.empty?
-          service_entry.name = PORT_SERVICE_MAP[service_entry.port.to_i] || 'unknown'
-        end
+        service_entry.name = PORT_SERVICE_MAP[service_entry.port.to_i] || 'unknown' if service_entry.name.nil? || service_entry.name.empty?
         @entries << service_entry unless @entries.any? { |e| e.service_key == service_entry.service_key }
       end
     end
@@ -121,9 +118,9 @@ module Mme
       p = progress
       done = p[:completed] + p[:skipped] + p[:failed]
       total = p[:total]
-      pct = total > 0 ? (done * 100.0 / total).round(1) : 0
+      pct = total.positive? ? (done * 100.0 / total).round(1) : 0
       filled = (pct / 5).to_i
-      bar = '#' * filled + '-' * (20 - filled)
+      bar = ('#' * filled) + ('-' * (20 - filled))
       "[#{bar}] #{pct}% (#{done}/#{total})"
     end
 

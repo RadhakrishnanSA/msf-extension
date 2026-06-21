@@ -18,17 +18,18 @@ module Mme
 
     def list
       return [] unless File.exist?(scope_file)
+
       File.readlines(scope_file).map(&:strip).reject(&:empty?)
     end
 
     def add(target)
       entries = list
-      unless entries.include?(target)
+      if entries.include?(target)
+        false
+      else
         entries << target
         save(entries)
         true
-      else
-        false
       end
     end
 
@@ -68,15 +69,13 @@ module Mme
       end
 
       entries.each do |entry|
-        begin
-          entry_walker = ::Rex::Socket::RangeWalker.new(entry)
-          # A simple check: if the first IP of the target is in the scope, we allow it.
-          # A true enterprise tool would check if the entire target range is a subset of the scope.
-          # But MSF RangeWalker is limited. We'll check the first IP.
-          return true if entry_walker.include?(target_walker.first)
-        rescue StandardError
-          next
-        end
+        entry_walker = ::Rex::Socket::RangeWalker.new(entry)
+        # A simple check: if the first IP of the target is in the scope, we allow it.
+        # A true enterprise tool would check if the entire target range is a subset of the scope.
+        # But MSF RangeWalker is limited. We'll check the first IP.
+        return true if entry_walker.include?(target_walker.first)
+      rescue StandardError
+        next
       end
 
       false
@@ -87,12 +86,12 @@ module Mme
     # Sanitize workspace name for safe use in file paths.
     # Strips any characters that are not alphanumeric, underscore, or dash.
     def sanitize_workspace_name(name)
-      name.to_s.gsub(/[^a-zA-Z0-9_\-]/, '_')
+      name.to_s.gsub(/[^a-zA-Z0-9_-]/, '_')
     end
 
     def save(entries)
       FileUtils.mkdir_p(File.dirname(scope_file))
-      File.write(scope_file, entries.join("\n") + "\n")
+      File.write(scope_file, "#{entries.join("\n")}\n")
     end
   end
 end

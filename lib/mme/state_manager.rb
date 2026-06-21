@@ -20,26 +20,24 @@ module Mme
 
     def self.state_dir
       dir = File.join(Dir.home, '.msf4', 'mme', 'state')
-      FileUtils.mkdir_p(dir) unless Dir.exist?(dir)
+      FileUtils.mkdir_p(dir)
       dir
     end
 
     def self.list_sessions
       sessions = []
       Dir.glob(File.join(state_dir, '*.json')).each do |file|
-        begin
-          data = JSON.parse(File.read(file))
-          sessions << {
-            id: File.basename(file, '.json'),
-            target: data['target'],
-            start_time: data['start_time'],
-            queue_total: data['queue']&.size || 0,
-            queue_completed: data['queue']&.count { |s| %w[completed failed skipped].include?(s['status']) } || 0,
-            last_updated: File.mtime(file)
-          }
-        rescue StandardError
-          next
-        end
+        data = JSON.parse(File.read(file))
+        sessions << {
+          id: File.basename(file, '.json'),
+          target: data['target'],
+          start_time: data['start_time'],
+          queue_total: data['queue']&.size || 0,
+          queue_completed: data['queue']&.count { |s| %w[completed failed skipped].include?(s['status']) } || 0,
+          last_updated: File.mtime(file)
+        }
+      rescue StandardError
+        next
       end
       sessions.sort_by { |s| s[:last_updated] }.reverse
     end
@@ -100,7 +98,7 @@ module Mme
     end
 
     def delete
-      File.delete(state_file) if File.exist?(state_file)
+      FileUtils.rm_f(state_file)
     end
   end
 end

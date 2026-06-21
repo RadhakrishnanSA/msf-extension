@@ -43,7 +43,7 @@ module Mme
       when 'high'     then "\e[91m"  # light red
       when 'medium'   then "\e[33m"  # yellow
       when 'low'      then "\e[36m"  # cyan
-      else "\e[37m"                   # white
+      else "\e[37m" # white
       end
     end
 

@@ -268,10 +268,10 @@ module Mme
       # If we have hostnames from Phase 0, inject them into the services if they aren't bare IPs
       services.each do |svc|
         mapping = resolved_hosts_map.find { |m| m[:ip] == svc.host }
-        if mapping && mapping[:hostname] && mapping[:hostname] != svc.host
+        if mapping && mapping[:hostname] && mapping[:hostname] != svc.host && svc.info.empty?
           # Currently ServiceEntry doesn't have a hostname field, so we just add it to info
           # or we could let the playbook engine handle vhosts. For now, track it in info if empty.
-          svc.info = "Hostname: #{mapping[:hostname]}" if svc.info.empty?
+          svc.info = "Hostname: #{mapping[:hostname]}"
         end
         @service_queue.add(svc)
       end
@@ -317,6 +317,7 @@ module Mme
       if thread_count == 1
         while (service_entry = @service_queue.next_service)
           break if @stop_requested
+
           process_service_with_logging(service_entry)
         end
       else
@@ -326,6 +327,7 @@ module Mme
           threads << Thread.new do
             while (service_entry = @service_queue.next_service)
               break if @stop_requested
+
               process_service_with_logging(service_entry)
             end
           end
@@ -450,7 +452,7 @@ module Mme
       @state_manager.delete
 
       if html_path || md_path
-        log_good("Report(s) generated successfully!")
+        log_good('Report(s) generated successfully!')
         log_good("HTML: file://#{html_path}") if html_path
         log_good("Markdown: file://#{md_path}") if md_path
       end

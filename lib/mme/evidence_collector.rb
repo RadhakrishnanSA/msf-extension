@@ -48,7 +48,7 @@ module Mme
       @mutex.synchronize { @evidence_store << evidence }
 
       # Create a finding if evidence config suggests it
-      if has_meaningful_output?(module_result.output, module_result.module_path)
+      if meaningful_output?(module_result.output, module_result.module_path)
         finding = create_finding(evidence, step)
         evidence.finding_id = finding.id if finding
       end
@@ -77,9 +77,7 @@ module Mme
       )
 
       # Attempt to find exploits if this is a version finding
-      if evidence.evidence_type == 'service_version'
-        finding.exploits = find_exploits_for_version(evidence.content)
-      end
+      finding.exploits = find_exploits_for_version(evidence.content) if evidence.evidence_type == 'service_version'
 
       @mutex.synchronize { @findings_store << finding }
 
@@ -114,7 +112,6 @@ module Mme
       end
     end
 
-
     def summary
       {
         total_evidence: @evidence_store.size,
@@ -136,68 +133,66 @@ module Mme
     def find_exploits_for_version(content)
       return [] if content.nil? || content.strip.empty?
 
+      product, version, terms = parse_version_content(content)
+      return [] if product.nil? && terms.empty?
+
+      exploits = search_exploit_cache(product, version, terms)
+
+      # Ranks in MSF: Excellent (600), Great (500), Good (400), Normal (300)
+      exploits.sort_by { |e| -e[:rank] }[0..4]
+    end
+
+    def parse_version_content(content)
       product = nil
       version = nil
       terms = []
 
-      # Attempt to parse specific product and version strings
-      if (m = content.match(/([a-zA-Z\-_]+(?:\s+[a-zA-Z\-_]+)*)[\s\/]+(\d+\.\d+(?:\.\d+)*[a-zA-Z0-9\-\.]*)/))
+      if (m = content.match(%r{([a-zA-Z\-_]+(?:\s+[a-zA-Z\-_]+)*)[\s/]+(\d+\.\d+(?:\.\d+)*[a-zA-Z0-9\-.]*)}))
         product = m[1].strip.downcase
         version = m[2].strip
       else
-        # Fallback to old crude extraction
         noise = %w[version is running the server on port banner]
-        words = content.gsub(/[^\w\s\.\-]/, ' ').split(/\s+/)
+        words = content.gsub(/[^\w\s.-]/, ' ').split(/\s+/)
         terms = words.reject { |w| w.length < 3 || noise.include?(w.downcase) }[0..2]
-        return [] if terms.empty?
       end
 
+      [product, version, terms]
+    end
+
+    def search_exploit_cache(product, version, terms)
       exploits = []
+      return exploits unless defined?(Msf::Modules::Metadata::Cache)
+
       begin
-        if defined?(Msf::Modules::Metadata::Cache)
-          # Try to search cache
-          metadata = begin
-            Msf::Modules::Metadata::Cache.instance.get_metadata
-          rescue StandardError
-            []
-          end
-          metadata.each do |m|
-            next unless m.type == 'exploit'
-            
-            match_confidence = nil
-            search_text = "#{m.fullname} #{m.description} #{m.name}".downcase
+        metadata = begin
+          Msf::Modules::Metadata::Cache.instance.get_metadata
+        rescue StandardError
+          []
+        end
+        metadata.each do |m|
+          next unless m.type == 'exploit'
 
-            if product && version
-              if search_text.include?(product)
-                if search_text.include?(version)
-                  match_confidence = 'High Confidence'
-                elsif search_text.include?(version.split('.')[0..1].join('.')) # Partial version match
-                  match_confidence = 'Possible Match'
-                end
-              end
-            else
-              # Fallback logic
-              if terms.all? { |t| search_text.include?(t.downcase) }
-                match_confidence = 'Possible Match'
-              end
-            end
-
-            if match_confidence
-              exploits << { 
-                fullname: m.fullname, 
-                name: m.name, 
-                rank: m.rank || 0,
-                confidence: match_confidence
-              }
-            end
-          end
+          confidence = match_exploit_confidence(m, product, version, terms)
+          exploits << { fullname: m.fullname, name: m.name, rank: m.rank || 0, confidence: confidence } if confidence
         end
       rescue StandardError => e
         warn("[!] Exploit search error: #{e.message}")
       end
+      exploits
+    end
 
-      # Ranks in MSF: Excellent (600), Great (500), Good (400), Normal (300)
-      exploits.sort_by { |e| -e[:rank] }[0..4]
+    def match_exploit_confidence(metadata, product, version, terms)
+      search_text = "#{metadata.fullname} #{metadata.description} #{metadata.name}".downcase
+
+      if product && version
+        return nil unless search_text.include?(product)
+        return 'High Confidence' if search_text.include?(version)
+        return 'Possible Match' if search_text.include?(version.split('.')[0..1].join('.'))
+      elsif terms.any? && terms.all? { |t| search_text.include?(t.downcase) }
+        return 'Possible Match'
+      end
+
+      nil
     end
 
     def extract_meaningful_content(output)
@@ -227,13 +222,15 @@ module Mme
       cleaned.join("\n")
     end
 
-    def has_meaningful_output?(output, module_path = '')
+    def meaningful_output?(output, module_path = '')
       return false if output.nil? || output.strip.empty?
+
       output_lower = output.downcase
 
       # Strict check for login/bruteforce modules
       if module_path.to_s.include?('login') || module_path.to_s.include?('brute')
         return false if output_lower.include?('0 credentials were successful')
+
         return output_lower.include?('success') || output.include?('LOGIN SUCCESS') || output.include?('Logged in')
       end
 
@@ -258,43 +255,35 @@ module Mme
       end
     end
 
-    def store_finding_to_db(finding, evidence)
+    def store_finding_to_db(finding, _evidence)
       return unless @framework.db.active
 
       @db_mutex.synchronize do
-        begin
-          # Store as a note
-          @framework.db.report_note(
+        # Store as a note
+        @framework.db.report_note(
+          host: finding.host,
+          port: finding.port,
+          type: "mme.finding.#{finding.severity}",
+          data: finding.to_h
+        )
+
+        # If high/critical, also report as vuln
+        if %w[critical high].include?(finding.severity)
+          refs = finding.references.map do |ref|
+            ref.start_with?('http') ? "URL-#{ref}" : ref
+          end
+
+          @framework.db.report_vuln(
             host: finding.host,
             port: finding.port,
-            type: "mme.finding.#{finding.severity}",
-            data: finding.to_h
+            name: finding.title,
+            info: finding.description,
+            refs: refs
           )
-
-          # If high/critical, also report as vuln
-          if %w[critical high].include?(finding.severity)
-            refs = finding.references.map do |ref|
-              if ref.start_with?('CVE-')
-                ref
-              elsif ref.start_with?('http')
-                "URL-#{ref}"
-              else
-                ref
-              end
-            end
-
-            @framework.db.report_vuln(
-              host: finding.host,
-              port: finding.port,
-              name: finding.title,
-              info: finding.description,
-              refs: refs
-            )
-          end
-        rescue StandardError => e
-          # Don't let DB errors stop the engine
-          warn("[!] DB storage error: #{e.message}")
         end
+      rescue StandardError => e
+        # Don't let DB errors stop the engine
+        warn("[!] DB storage error: #{e.message}")
       end
     end
   end

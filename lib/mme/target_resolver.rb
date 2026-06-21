@@ -9,6 +9,7 @@ require 'fileutils'
 require 'set'
 
 module Mme
+  # Resolves network targets (IPs, ranges, hostnames) into an array of IP addresses
   class TargetResolver
     # Result of the resolution phase
     ResolutionResult = Struct.new(
@@ -27,9 +28,9 @@ module Mme
     end
 
     def resolve!(target, opts = {})
-      start_time = Time.now
+      Time.now
       log_status('[Phase 0/6] Target Resolution and Discovery')
-      
+
       result = ResolutionResult.new(
         original_target: target,
         resolved_hosts: [],
@@ -59,12 +60,8 @@ module Mme
         log_warning("  [!] No scope defined! All #{result.resolved_hosts.size} discovered targets will be queued.")
       else
         log_good("  [+] Resolution complete. Queuing #{result.resolved_hosts.size} live/in-scope hosts.")
-        if result.excluded_hosts.any?
-          log_warning("  [-] Excluded #{result.excluded_hosts.size} out-of-scope targets.")
-        end
-        if result.dead_hosts.any?
-          log_status("  [-] Ignored #{result.dead_hosts.size} unresponsive hosts.")
-        end
+        log_warning("  [-] Excluded #{result.excluded_hosts.size} out-of-scope targets.") if result.excluded_hosts.any?
+        log_status("  [-] Ignored #{result.dead_hosts.size} unresponsive hosts.") if result.dead_hosts.any?
       end
 
       result
@@ -89,7 +86,7 @@ module Mme
       if target.match?(/\A(\d{1,3}\.){3}\d{1,3}\z/)
         [target, :ip]
       # Basic CIDR or hyphen range regex
-      elsif target.match?(/\A(\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2}|-\d{1,3})\z/)
+      elsif target.match?(%r{\A(\d{1,3}\.){3}\d{1,3}(?:/\d{1,2}|-\d{1,3})\z})
         [target, :range]
       else
         [target, :domain]
@@ -118,16 +115,16 @@ module Mme
 
     def run_ping_sweep(range)
       log_status("  [*] Running ICMP/ARP ping sweep against #{range}...")
-      
+
       output_dir = File.join(Dir.home, '.msf4', 'mme', 'scans')
       FileUtils.mkdir_p(output_dir)
       temp_xml = File.join(output_dir, "ping_sweep_#{Time.now.to_i}.xml")
-      
+
       nmap_args = ['-sn', '-T4', '-oX', temp_xml, range]
-      
+
       begin
         stdout, status = Open3.capture2e('nmap', *nmap_args)
-        
+
         unless status.success?
           log_error("  [-] Ping sweep failed: #{stdout}")
           return []
@@ -153,7 +150,7 @@ module Mme
 
     def process_domain(domain, scope, result, opts)
       if opts[:no_subdomain_enum]
-        log_status("  [*] Skipping subdomain enum (--no-subdomain-enum).")
+        log_status('  [*] Skipping subdomain enum (--no-subdomain-enum).')
         subdomains = [domain]
       else
         log_status("  [*] Enumerating subdomains for #{domain}...")
@@ -169,9 +166,9 @@ module Mme
     def resolve_names_to_ips(subdomains, opts)
       log_status("  [*] Resolving #{subdomains.size} names to IPs...")
       resolved_map = {}
-      
+
       threads = []
-      max_threads = [(opts[:threads] || 10), 20].min
+      max_threads = [opts[:threads] || 10, 20].min
 
       queue = Queue.new
       subdomains.each { |s| queue << s }
@@ -219,7 +216,7 @@ module Mme
     def enumerate_subdomains(domain, opts)
       subdomains = Set.new([domain])
       enumerate_passive(domain, subdomains)
-      
+
       unless opts[:passive_only]
         enumerate_active_tools(domain, subdomains)
         enumerate_dns_brute(domain, subdomains, opts)
@@ -229,17 +226,17 @@ module Mme
     end
 
     def enumerate_passive(domain, subdomains)
-      log_status("    - Querying crt.sh (Passive)...")
+      log_status('    - Querying crt.sh (Passive)...')
       begin
         uri = URI("https://crt.sh/?q=%25.#{domain}&output=json")
         http = Net::HTTP.new(uri.host, uri.port)
         http.use_ssl = true
         http.open_timeout = 10
         http.read_timeout = 20
-        
+
         req = Net::HTTP::Get.new(uri)
         res = http.request(req)
-        
+
         if res.code == '200'
           data = JSON.parse(res.body)
           data.each do |entry|
@@ -257,53 +254,49 @@ module Mme
 
     def enumerate_active_tools(domain, subdomains)
       if tool_installed?('subfinder')
-        log_status("    - Running subfinder...")
+        log_status('    - Running subfinder...')
         out, stat = Open3.capture2e('subfinder', '-d', domain, '-silent')
-        if stat.success?
-          out.lines.each { |l| subdomains << l.strip.downcase }
-        end
+        out.lines.each { |l| subdomains << l.strip.downcase } if stat.success?
       elsif tool_installed?('amass')
-        log_status("    - Running amass enum...")
+        log_status('    - Running amass enum...')
         out, stat = Open3.capture2e('amass', 'enum', '-passive', '-d', domain)
-        if stat.success?
-          out.lines.each { |l| subdomains << l.strip.downcase }
-        end
+        out.lines.each { |l| subdomains << l.strip.downcase } if stat.success?
       end
     end
 
     def enumerate_dns_brute(domain, subdomains, opts)
-      log_status("    - Brute-forcing DNS (Active)...")
+      log_status('    - Brute-forcing DNS (Active)...')
       wordlist = opts[:subdomain_wordlist] || default_subdomain_wordlist
       if wordlist && File.exist?(wordlist)
         File.readlines(wordlist).each do |word|
           word = word.strip.downcase
           next if word.empty? || word.start_with?('#')
+
           subdomains << "#{word}.#{domain}"
         end
       else
-        log_warning("      [!] No subdomain wordlist found. Skipping active brute.")
+        log_warning('      [!] No subdomain wordlist found. Skipping active brute.')
       end
     end
 
     def extract_live_ips_from_xml(xml_path)
       return [] unless File.exist?(xml_path)
+
       content = File.read(xml_path)
       ips = []
-      
+
       # Nmap XML format for hosts:
       # <host><status state="up" reason="arp-response" reason_ttl="0"/>
       # <address addr="10.0.0.5" addrtype="ipv4"/>
       # We extract the address if the state is "up" within the same <host> block.
-      
-      content.scan(/<host>(.*?)<\/host>/m).each do |host_block|
+
+      content.scan(%r{<host>(.*?)</host>}m).each do |host_block|
         block = host_block[0]
-        if block.include?('status state="up"')
-          if (match = block.match(/<address addr="([^"]+)"/))
-            ips << match[1]
-          end
+        if block.include?('status state="up"') && (match = block.match(/<address addr="([^"]+)"/))
+          ips << match[1]
         end
       end
-      
+
       ips.uniq
     end
 
@@ -317,7 +310,7 @@ module Mme
       paths = [
         '/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt',
         '/usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt',
-        '/usr/share/wordlists/seclists/Discovery/DNS/subdomains-top1million-5000.txt',
+        '/usr/share/wordlists/seclists/Discovery/DNS/subdomains-top1million-5000.txt'
       ]
       paths.find { |p| File.exist?(p) }
     end

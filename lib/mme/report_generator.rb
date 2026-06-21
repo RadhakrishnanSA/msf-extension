@@ -20,7 +20,7 @@ module Mme
       # "password => value" in module output
       /(passw(?:ord|d)?\s*(?:=>|=|:)\s*)(\S+)/i,
       # "Logged in with credentials: user:pass"
-      /(credentials?[:\s]+\S+:)(\S+)/i,
+      /(credentials?[:\s]+\S+:)(\S+)/i
     ].freeze
 
     def initialize(template_dir)
@@ -30,21 +30,19 @@ module Mme
     def generate_html(findings, _evidence, metadata)
       template_path = File.join(@template_dir, 'report.html.erb')
 
-      unless File.exist?(template_path)
-        # Use inline template if file not found
-        template_content = default_html_template
-      else
-        template_content = File.read(template_path)
-      end
+      template_content = if File.exist?(template_path)
+                           File.read(template_path)
+                         else
+                           # Use inline template if file not found
+                           default_html_template
+                         end
 
       # Sort findings by severity
       sorted_findings = findings.sort_by { |f| Finding::SEVERITIES.index(f.severity.to_s.downcase) || 99 }
 
       # Apply credential redaction to evidence arrays before rendering
       sorted_findings.each do |f|
-        if f.evidence.is_a?(Array)
-          f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) }
-        end
+        f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) } if f.evidence.is_a?(Array)
       end
 
       # Group by host
@@ -78,9 +76,7 @@ module Mme
 
       # Apply credential redaction to evidence arrays before rendering
       sorted_findings.each do |f|
-        if f.evidence.is_a?(Array)
-          f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) }
-        end
+        f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) } if f.evidence.is_a?(Array)
       end
 
       # Group by host
@@ -103,9 +99,7 @@ module Mme
     def generate_json(findings, evidence, metadata)
       # Apply credential redaction to findings evidence before serialization
       findings.each do |f|
-        if f.evidence.is_a?(Array)
-          f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) }
-        end
+        f.evidence = f.evidence.map { |ev| redact_credentials(ev.to_s) } if f.evidence.is_a?(Array)
       end
 
       report = {
@@ -126,14 +120,14 @@ module Mme
           by_severity: findings.group_by(&:severity).transform_values(&:count)
         },
         findings: findings.map(&:to_h),
-        evidence: evidence.map { |e|
+        evidence: evidence.map do |e|
           {
             id: e.id, host: e.host, port: e.port, service: e.service,
             module_path: e.module_path, type: e.evidence_type,
             content: redact_credentials(e.content.to_s),
             timestamp: e.timestamp&.to_s
           }
-        }
+        end
       }
 
       output_path = report_output_path('json')
@@ -155,11 +149,10 @@ module Mme
                  '--margin-bottom', '15mm', '--margin-left', '10mm',
                  '--margin-right', '10mm', html_path, pdf_path]
           output, status = Open3.capture2e(*cmd)
-          if status.success?
-            return pdf_path
-          else
-            warn("[!] wkhtmltopdf failed: #{output}")
-          end
+          return pdf_path if status.success?
+
+
+          warn("[!] wkhtmltopdf failed: #{output}")
         rescue StandardError => e
           warn("[!] PDF generation error: #{e.message}")
         end
@@ -175,7 +168,9 @@ module Mme
       # Check common locations
       candidates = %w[wkhtmltopdf /usr/local/bin/wkhtmltopdf /usr/bin/wkhtmltopdf]
       candidates.each do |cmd|
-        return cmd if system("#{cmd} --version > /dev/null 2>&1") || system("#{cmd} --version > NUL 2>&1") rescue false
+        return cmd if system("#{cmd} --version > /dev/null 2>&1") || system("#{cmd} --version > NUL 2>&1")
+      rescue StandardError
+        false
       end
       nil
     end
@@ -192,7 +187,7 @@ module Mme
 
       redacted = text.dup
       CREDENTIAL_PATTERNS.each do |pattern|
-        redacted.gsub!(pattern) { "#{$1}********" }
+        redacted.gsub!(pattern) { "#{::Regexp.last_match(1)}********" }
       end
       redacted
     end
@@ -207,90 +202,90 @@ module Mme
     # Fallback HTML template if the ERB file is not found
     def default_html_template
       # (This is a simplified fallback; the full template is in templates/report.html.erb)
-      <<~'HTML'
-      <!DOCTYPE html>
-      <html><head><title>MME Report</title>
-      <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 40px; background: #1a1a2e; color: #eee; }
-        h1 { color: #e94560; } h2 { color: #0f3460; background: #16213e; padding: 10px; border-radius: 4px; color: #eee; }
-        .finding { background: #16213e; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #e94560; }
-        .critical { border-left-color: #ff0000; } .high { border-left-color: #ff4444; }
-        .medium { border-left-color: #ffaa00; } .low { border-left-color: #00aaff; }
-        .info { border-left-color: #888; }
-        .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; color: white; }
-        .badge-critical { background: #ff0000; } .badge-high { background: #ff4444; }
-        .badge-medium { background: #ffaa00; color: #333; } .badge-low { background: #00aaff; }
-        .badge-informational { background: #888; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }
-        th { background: #0f3460; }
-        pre { background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
-        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }
-        .summary-card { background: #16213e; padding: 20px; border-radius: 8px; text-align: center; }
-        .summary-card .number { font-size: 32px; font-weight: bold; color: #e94560; }
-        .summary-card .label { font-size: 14px; color: #aaa; margin-top: 5px; }
-      </style></head><body>
-      <h1>🔍 Metasploit Methodology Engine — Report</h1>
-      <p>Generated: <%= Time.now %></p>
-      <p>Target: <%= h(metadata[:target]) %></p>
+      <<~HTML
+        <!DOCTYPE html>
+        <html><head><title>MME Report</title>
+        <style>
+          body { font-family: 'Segoe UI', sans-serif; margin: 40px; background: #1a1a2e; color: #eee; }
+          h1 { color: #e94560; } h2 { color: #0f3460; background: #16213e; padding: 10px; border-radius: 4px; color: #eee; }
+          .finding { background: #16213e; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #e94560; }
+          .critical { border-left-color: #ff0000; } .high { border-left-color: #ff4444; }
+          .medium { border-left-color: #ffaa00; } .low { border-left-color: #00aaff; }
+          .info { border-left-color: #888; }
+          .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; color: white; }
+          .badge-critical { background: #ff0000; } .badge-high { background: #ff4444; }
+          .badge-medium { background: #ffaa00; color: #333; } .badge-low { background: #00aaff; }
+          .badge-informational { background: #888; }
+          table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+          th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }
+          th { background: #0f3460; }
+          pre { background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+          .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }
+          .summary-card { background: #16213e; padding: 20px; border-radius: 8px; text-align: center; }
+          .summary-card .number { font-size: 32px; font-weight: bold; color: #e94560; }
+          .summary-card .label { font-size: 14px; color: #aaa; margin-top: 5px; }
+        </style></head><body>
+        <h1>🔍 Metasploit Methodology Engine — Report</h1>
+        <p>Generated: <%= Time.now %></p>
+        <p>Target: <%= h(metadata[:target]) %></p>
 
-      <h2>Executive Summary</h2>
-      <div class="summary-grid">
-        <div class="summary-card"><div class="number"><%= sorted_findings.size %></div><div class="label">Total Findings</div></div>
-        <% Finding::SEVERITIES.each do |sev| %>
-          <div class="summary-card"><div class="number"><%= severity_summary[sev] || 0 %></div><div class="label"><%= sev.capitalize %></div></div>
-        <% end %>
-      </div>
+        <h2>Executive Summary</h2>
+        <div class="summary-grid">
+          <div class="summary-card"><div class="number"><%= sorted_findings.size %></div><div class="label">Total Findings</div></div>
+          <% Finding::SEVERITIES.each do |sev| %>
+            <div class="summary-card"><div class="number"><%= severity_summary[sev] || 0 %></div><div class="label"><%= sev.capitalize %></div></div>
+          <% end %>
+        </div>
 
-      <h2>Findings by Host</h2>
-      <% if findings_by_host.empty? %>
-        <p>No findings discovered.</p>
-      <% else %>
-      <% findings_by_host.each do |host, host_findings| %>
-        <h3>Host: <%= h(host) %></h3>
-        <% host_findings.each do |f| %>
-          <div class="finding <%= h(f.severity) %>">
-            <span class="badge badge-<%= h(f.severity) %>"><%= h(f.severity.upcase) %></span>
-            <strong><%= h(f.title) %></strong>
-            <p><%= h(f.description) %></p>
-            <table>
-              <tr><th>Service</th><td><%= h(f.service) %> (Port <%= f.port %>)</td></tr>
-              <tr><th>Module</th><td><%= h(f.module_path) %></td></tr>
-              <tr><th>Impact</th><td><%= h(f.impact) %></td></tr>
-              <tr><th>Remediation</th><td><%= h(f.remediation) %></td></tr>
-              <tr><th>Status</th><td><%= h(f.status) %></td></tr>
-            </table>
-            <% if f.evidence.is_a?(Array) && f.evidence.any? %>
-              <h4>Evidence</h4>
-              <% f.evidence.each do |ev| %>
-                <pre><%= h(ev.to_s) %></pre>
+        <h2>Findings by Host</h2>
+        <% if findings_by_host.empty? %>
+          <p>No findings discovered.</p>
+        <% else %>
+        <% findings_by_host.each do |host, host_findings| %>
+          <h3>Host: <%= h(host) %></h3>
+          <% host_findings.each do |f| %>
+            <div class="finding <%= h(f.severity) %>">
+              <span class="badge badge-<%= h(f.severity) %>"><%= h(f.severity.upcase) %></span>
+              <strong><%= h(f.title) %></strong>
+              <p><%= h(f.description) %></p>
+              <table>
+                <tr><th>Service</th><td><%= h(f.service) %> (Port <%= f.port %>)</td></tr>
+                <tr><th>Module</th><td><%= h(f.module_path) %></td></tr>
+                <tr><th>Impact</th><td><%= h(f.impact) %></td></tr>
+                <tr><th>Remediation</th><td><%= h(f.remediation) %></td></tr>
+                <tr><th>Status</th><td><%= h(f.status) %></td></tr>
+              </table>
+              <% if f.evidence.is_a?(Array) && f.evidence.any? %>
+                <h4>Evidence</h4>
+                <% f.evidence.each do |ev| %>
+                  <pre><%= h(ev.to_s) %></pre>
+                <% end %>
               <% end %>
-            <% end %>
-          </div>
+            </div>
+          <% end %>
         <% end %>
-      <% end %>
 
-      <% if metadata[:unmatched_services] && metadata[:unmatched_services].any? %>
-      <hr>
-      <h2>⚠️ Manual Review Required (Unmatched Services)</h2>
-      <p>The following services were discovered but did not match any active playbook. They require manual enumeration:</p>
-      <table>
-        <tr><th>Host</th><th>Port</th><th>Protocol</th><th>Service Name</th><th>Info</th></tr>
-        <% metadata[:unmatched_services].each do |svc| %>
-          <tr>
-            <td><%= h(svc.host) %></td>
-            <td><%= svc.port %></td>
-            <td><%= h(svc.proto) %></td>
-            <td><%= h(svc.name) %></td>
-            <td><%= h(svc.info) %></td>
-          </tr>
+        <% if metadata[:unmatched_services] && metadata[:unmatched_services].any? %>
+        <hr>
+        <h2>⚠️ Manual Review Required (Unmatched Services)</h2>
+        <p>The following services were discovered but did not match any active playbook. They require manual enumeration:</p>
+        <table>
+          <tr><th>Host</th><th>Port</th><th>Protocol</th><th>Service Name</th><th>Info</th></tr>
+          <% metadata[:unmatched_services].each do |svc| %>
+            <tr>
+              <td><%= h(svc.host) %></td>
+              <td><%= svc.port %></td>
+              <td><%= h(svc.proto) %></td>
+              <td><%= h(svc.name) %></td>
+              <td><%= h(svc.info) %></td>
+            </tr>
+          <% end %>
+        </table>
         <% end %>
-      </table>
-      <% end %>
 
-      <hr>
-      <p><em>Generated by MME v<%= Mme::VERSION %> | Duration: <%= metadata[:duration] %>s</em></p>
-      </body></html>
+        <hr>
+        <p><em>Generated by MME v<%= Mme::VERSION %> | Duration: <%= metadata[:duration] %>s</em></p>
+        </body></html>
       HTML
     end
   end
