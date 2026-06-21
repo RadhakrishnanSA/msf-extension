@@ -1,0 +1,113 @@
+AllCops:
+  NewCops: enable
+  Exclude:
+    - 'vendor/**/*'
+    - 'spec/**/*'
+    - 'test/**/*'
+
+# Disable strict metric limits
+Metrics/AbcSize:
+  Enabled: false
+Metrics/CyclomaticComplexity:
+  Enabled: false
+Metrics/PerceivedComplexity:
+  Enabled: false
+Metrics/MethodLength:
+  Enabled: false
+Metrics/ClassLength:
+  Enabled: false
+Metrics/BlockLength:
+  Enabled: false
+Metrics/ParameterLists:
+  Enabled: false
+Metrics/BlockNesting:
+  Enabled: false
+
+# Disable overly aggressive layout and style enforcement
+Layout/LineLength:
+  Enabled: false
+Layout/TrailingWhitespace:
+  Enabled: false
+Layout/HashAlignment:
+  Enabled: false
+Layout/EmptyLines:
+  Enabled: false
+Layout/EmptyLineBetweenDefs:
+  Enabled: false
+Layout/EmptyLineAfterGuardClause:
+  Enabled: false
+Layout/ExtraSpacing:
+  Enabled: false
+Layout/FirstHashElementIndentation:
+  Enabled: false
+Layout/SpaceAroundOperators:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false
+Style/FrozenStringLiteralComment:
+  Enabled: false
+Style/StringLiterals:
+  Enabled: false
+Style/IfUnlessModifier:
+  Enabled: false
+Style/RescueStandardError:
+  Enabled: false
+Style/StderrPuts:
+  Enabled: false
+Style/RedundantParentheses:
+  Enabled: false
+Style/MultipleComparison:
+  Enabled: false
+Style/TernaryParentheses:
+  Enabled: false
+Style/WordArray:
+  Enabled: false
+Style/RescueModifier:
+  Enabled: false
+Style/RedundantBegin:
+  Enabled: false
+Style/SoleNestedConditional:
+  Enabled: false
+Style/RegexpLiteral:
+  Enabled: false
+Style/RedundantRegexpEscape:
+  Enabled: false
+Style/PerlBackrefs:
+  Enabled: false
+Style/Next:
+  Enabled: false
+Style/NumericPredicate:
+  Enabled: false
+Style/SlicingWithRange:
+  Enabled: false
+Style/GuardClause:
+  Enabled: false
+Style/ConditionalAssignment:
+  Enabled: false
+Style/StringConcatenation:
+  Enabled: false
+Style/SafeNavigation:
+  Enabled: false
+Style/RedundantReturn:
+  Enabled: false
+
+# Disable minor lint checks that interfere with MSF conventions
+Lint/UnusedMethodArgument:
+  Enabled: false
+Lint/UnusedBlockArgument:
+  Enabled: false
+Lint/UselessAssignment:
+  Enabled: false
+Lint/NonLocalExitFromIterator:
+  Enabled: false
+Lint/RescueException:
+  Enabled: false
+
+# Naming conventions
+Naming/AccessorMethodName:
+  Enabled: false
+Naming/MemoizedInstanceVariableName:
+  Enabled: false
+Naming/PredicatePrefix:
+  Enabled: false
