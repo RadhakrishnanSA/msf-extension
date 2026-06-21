@@ -137,7 +137,7 @@ module Mme
         log_status("  [+] Ping sweep discovered #{live_ips.size} live hosts.")
         live_ips
       ensure
-        File.delete(temp_xml) if File.exist?(temp_xml)
+        FileUtils.rm_f(temp_xml)
       end
     end
 
@@ -298,7 +298,7 @@ module Mme
       content.scan(/<host>(.*?)<\/host>/m).each do |host_block|
         block = host_block[0]
         if block.include?('status state="up"')
-          if match = block.match(/<address addr="([^"]+)"/)
+          if (match = block.match(/<address addr="([^"]+)"/))
             ips << match[1]
           end
         end

@@ -309,8 +309,8 @@ module Mme
       result.output.lines.each do |line|
         # MSF suggester output typically looks like:
         # [+] 10.0.0.5 - exploit/linux/local/bpf_sign_extension: The target appears to be vulnerable.
-        if line.match?(/\[\+\]\s+.*?\s+-\s+(exploit\/.*?):\s+(.*?vulnerable.*)/i)
-          suggestions << $1.strip
+        if (m = line.match(/\[\+\]\s+.*?\s+-\s+(exploit\/.*?):\s+(.*?vulnerable.*)/i))
+          suggestions << m[1].strip
         end
       end
 

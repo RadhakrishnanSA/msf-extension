@@ -78,7 +78,7 @@ module Mme
         log_error("Nmap scan error: #{e.message}")
         return []
       ensure
-        File.delete(input_list_file) if File.exist?(input_list_file)
+        FileUtils.rm_f(input_list_file)
       end
 
       # Import results
