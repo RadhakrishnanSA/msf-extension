@@ -36,9 +36,14 @@ MME is an **Enterprise-Grade** Metasploit Framework plugin that automates eJPT, 
    ```
 
 ### Basic Usage
-To run a standard automated methodology against a single IP:
+To run a standard automated methodology against a single IP or Domain:
 ```bash
 msf6 > mme_scan 192.168.1.10
+```
+
+To run against a specific web application URL (MME will automatically extract the host):
+```bash
+msf6 > mme_scan https://example.com/login?foo=bar
 ```
 
 To specify custom ports (just like Nmap):
