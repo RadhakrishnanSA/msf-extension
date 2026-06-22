@@ -15,7 +15,9 @@ module Mme
     def self.validate_target!(target)
       raise ValidationError, 'Target cannot be empty' if target.nil? || target.strip.empty?
       unless target.match?(TARGET_PATTERN)
-        raise ValidationError, "Invalid characters in target: #{target}. Only alphanumeric, dots, hyphens, underscores, slashes, commas, colons, ampersands, equals, and question marks are allowed."
+        raise ValidationError,
+              "Invalid characters in target: #{target}. Only alphanumeric, dots, hyphens, " \
+              'underscores, slashes, commas, colons, ampersands, equals, and question marks are allowed.'
       end
       raise ValidationError, "Target is too long (max 253 characters): #{target}" if target.length > 253
 
