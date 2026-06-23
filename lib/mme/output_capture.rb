@@ -1,14 +1,20 @@
 # frozen_string_literal: true
 
-# MME namespace
+begin
+  require 'rex/ui/text/output/buffer'
+rescue LoadError
+  # Fallback if somehow not loaded
+end
+
 module Mme
-  # Output capture utility
-  class OutputCapture
-    attr_reader :buffer, :lines
+  # Output capture utility that satisfies MSF's LocalOutput requirements
+  class OutputCapture < (defined?(Rex::Ui::Text::Output::Buffer) ? Rex::Ui::Text::Output::Buffer : Object)
+    attr_reader :lines
 
     def initialize(console_output = nil)
+      super() if defined?(Rex::Ui::Text::Output::Buffer)
       @console_output = console_output
-      @buffer = ''
+      @custom_buffer = ''
       @lines = []
       @mutex = Mutex.new
     end
@@ -38,7 +44,6 @@ module Mme
       @console_output&.print_warning(msg)
     end
 
-    # For compatibility with Rex::Ui::Text::Output interface
     def print(msg = '')
       record(msg.to_s.chomp, :raw)
       @console_output&.print(msg)
@@ -49,7 +54,7 @@ module Mme
     end
 
     def dump_buffer
-      @mutex.synchronize { @buffer.dup }
+      @mutex.synchronize { @custom_buffer.dup }
     end
 
     def dump_lines
@@ -58,13 +63,31 @@ module Mme
 
     def clear
       @mutex.synchronize do
-        @buffer = ''
+        @custom_buffer = ''
         @lines = []
       end
     end
 
     def empty?
-      @mutex.synchronize { @buffer.empty? }
+      @mutex.synchronize { @custom_buffer.empty? }
+    end
+
+    # --- MSF UI Interface Stubs ---
+
+    def prompting?
+      false
+    end
+
+    def input
+      nil
+    end
+
+    def supports_color?
+      @console_output ? @console_output.supports_color? : false
+    end
+
+    def reset_color
+      @console_output&.reset_color
     end
 
     private
@@ -73,7 +96,7 @@ module Mme
       @mutex.synchronize do
         entry = { timestamp: Time.now, level: level, message: msg.to_s }
         @lines << entry
-        @buffer << msg.to_s << "\n"
+        @custom_buffer << msg.to_s << "\n"
       end
     end
   end
