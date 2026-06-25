@@ -93,7 +93,7 @@ module Mme
     end
 
     def supports_color?
-      if @console_output&.respond_to?(:supports_color?)
+      if @console_output.respond_to?(:supports_color?)
         @console_output.supports_color?
       else
         false
@@ -101,11 +101,11 @@ module Mme
     end
 
     def reset_color
-      @console_output&.reset_color if @console_output&.respond_to?(:reset_color)
+      @console_output&.reset_color if @console_output.respond_to?(:reset_color)
     end
 
     def auto_color
-      if @console_output&.respond_to?(:auto_color)
+      if @console_output.respond_to?(:auto_color)
         @console_output.auto_color
       else
         0
@@ -113,13 +113,13 @@ module Mme
     end
 
     def update_prompt(*args)
-      @console_output&.update_prompt(*args) if @console_output&.respond_to?(:update_prompt)
+      @console_output&.update_prompt(*args) if @console_output.respond_to?(:update_prompt)
     end
 
     # Rex::Ui::Text::Output compatibility
     def write(msg = '')
       record(msg.to_s.chomp, :raw)
-      @console_output&.write(msg) if @console_output&.respond_to?(:write)
+      @console_output&.write(msg) if @console_output.respond_to?(:write)
     end
 
     # --- Safety net: forward any unknown method ---
@@ -127,11 +127,11 @@ module Mme
     # forward it to @console_output if it can handle it,
     # otherwise return nil/false to avoid crashing.
     def respond_to_missing?(method_name, include_private = false)
-      @console_output&.respond_to?(method_name, include_private) || super
+      @console_output.respond_to?(method_name, include_private) || super
     end
 
     def method_missing(method_name, *args, &block)
-      if @console_output&.respond_to?(method_name)
+      if @console_output.respond_to?(method_name)
         @console_output.send(method_name, *args, &block)
       else
         # Return a safe default for predicate methods, nil for everything else
