@@ -44,6 +44,7 @@ module Mme
     # Full workflow: Nmap scan → discover → queue → execute → report
     def scan(target, opts = {})
       opts = { nmap_opts: opts } if opts.is_a?(String) || opts.nil?
+      @opts = opts
       @target = target
       @start_time = Time.now
 
@@ -108,6 +109,7 @@ module Mme
 
     # Import scan file → discover → queue → execute → report
     def import(file_path)
+      @opts = {}
       @target = file_path
       @state = :importing
       @start_time = Time.now
@@ -404,7 +406,9 @@ module Mme
         queue_progress: @service_queue.progress,
         state: @state,
         unmatched_services: @unmatched_services.dup,
-        phase_zero: @phase_zero_stats || {}
+        phase_zero: @phase_zero_stats || {},
+        service_entries: @service_queue.entries.dup,
+        scan_options: @opts.dup
       }
     end
 
